@@ -54,8 +54,7 @@
       }
     },
     "notification": {
-      "icon": "./assets/images/notification-icon.png",
-      "color": "#ffffff",
+      "icon": "./assets/images/notification.png",
       "iosDisplayInForeground": true,
       "androidMode": "default",
       "androidCollapsedTitle": "#{unread_notifications} new interactions"
