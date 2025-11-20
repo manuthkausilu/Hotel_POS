@@ -13,9 +13,6 @@
     },
     "production": {
       "autoIncrement": true
-    },
-    "android": {
-      "buildCommand": "npm install && npx expo prebuild --clean && eas build"
     }
   },
   "submit": {
