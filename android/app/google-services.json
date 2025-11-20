@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "267454704134",
+    "project_id": "hotel-pos-864a2",
+    "storage_bucket": "hotel-pos-864a2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:267454704134:android:15d57c268ecd3b059bf187",
+        "android_client_info": {
+          "package_name": "com.rayff60.hotel_pos"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBLZa0fNgfTWSWHNfhjlA8fFYB3HFysMBU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
