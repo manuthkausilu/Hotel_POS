@@ -40,7 +40,6 @@ app-example
 
 # generated native folders
 /ios
-/android
-
+# /android
 
 /hotelpos-e8b98-firebase-adminsdk-fbsvc-0a2a47025b.json
