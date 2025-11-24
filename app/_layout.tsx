@@ -18,10 +18,9 @@ Notifications.setNotificationHandler({
 });
 
 function RootLayoutNav() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, setDeviceToken } = useAuth();
   const segments = useSegments();
   const router = useRouter();
-  const [expoPushToken, setExpoPushToken] = useState('');
   const notificationListener = useRef<Notifications.Subscription | null>(null);
   const responseListener = useRef<Notifications.Subscription | null>(null);
 
@@ -40,7 +39,7 @@ function RootLayoutNav() {
   useEffect(() => {
     registerForPushNotificationsAsync().then(token => {
       if (token) {
-        setExpoPushToken(token);
+        setDeviceToken(token);
         console.log('Expo Push Token:', token);
       }
     });
@@ -61,7 +60,7 @@ function RootLayoutNav() {
       if (notificationListener.current) notificationListener.current.remove();
       if (responseListener.current) responseListener.current.remove();
     };
-  }, []);
+  }, [setDeviceToken]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>

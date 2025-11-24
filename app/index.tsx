@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Drawer from '../components/Navigation';
 import { useAuth } from '../context/AuthContext';
+import NotificationList from '../components/Notification';
 
 export default function HomeScreen() {
   const { user, logout } = useAuth();
@@ -59,6 +60,8 @@ export default function HomeScreen() {
           </View>
         )}
       </View>
+
+      <NotificationList />
     </View>
   );
 }

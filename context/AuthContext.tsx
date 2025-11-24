@@ -3,11 +3,14 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { TOKEN_KEY } from '../services/apiClient';
 import { authService } from '../services/authService';
 import { User } from '../types/Auth';
+import { storeDeviceToken } from '../services/notificationService';
 
 interface AuthContextType {
   isAuthenticated: boolean;
   user: User | null;
   isLoading: boolean;
+  deviceToken: string | null;
+  setDeviceToken: (token: string) => void;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -18,6 +21,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [deviceToken, setDeviceToken] = useState<string | null>(null);
 
   useEffect(() => {
     checkAuth();
@@ -46,7 +50,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (email: string, password: string) => {
     const response = await authService.login(email, password);
     setIsAuthenticated(true);
-    setUser(response.user);
+    setUser(response.user ?? null);
+    if (deviceToken) {
+      console.log('Device token after login:', deviceToken);
+      try {
+        await storeDeviceToken(deviceToken);
+        console.log('Device token stored successfully on login');
+      } catch (error) {
+        console.error('Failed to store device token on login:', error);
+      }
+    }
   };
 
   const logout = async () => {
@@ -62,7 +75,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, isLoading, deviceToken, setDeviceToken, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
