@@ -1,59 +1,21 @@
 {
   "project_info": {
-    "project_number": "737274510343",
-    "project_id": "trackerstay",
-    "storage_bucket": "trackerstay.firebasestorage.app"
+    "project_number": "1041705305494",
+    "project_id": "hotelpos-e8b98",
+    "storage_bucket": "hotelpos-e8b98.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:737274510343:android:4f0957ff92123e986a3ea2",
+        "mobilesdk_app_id": "1:1041705305494:android:ef9d13213e4985d78149b7",
         "android_client_info": {
-          "package_name": "com.ishani_ekanayake.trackerstay"
+          "package_name": "com.rayff60.hotel_pos"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyCY2mAhjHq93iT4vKob6fWr6cTJcUGBRrI"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": []
-        }
-      }
-    },
-    {
-      "client_info": {
-        "mobilesdk_app_id": "1:737274510343:android:172f928c2d86f9556a3ea2",
-        "android_client_info": {
-          "package_name": "com.ishaniekanayake.trackerstay"
-        }
-      },
-      "oauth_client": [],
-      "api_key": [
-        {
-          "current_key": "AIzaSyCY2mAhjHq93iT4vKob6fWr6cTJcUGBRrI"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": []
-        }
-      }
-    },
-    {
-      "client_info": {
-        "mobilesdk_app_id": "1:737274510343:android:ebd4af9a6ba72c006a3ea2",
-        "android_client_info": {
-          "package_name": "com.ribelz.trackerstay"
-        }
-      },
-      "oauth_client": [],
-      "api_key": [
-        {
-          "current_key": "AIzaSyCY2mAhjHq93iT4vKob6fWr6cTJcUGBRrI"
+          "current_key": "AIzaSyDxH0VyEwpZsQhxgWliguzeaXzyR1OWKCc"
         }
       ],
       "services": {
