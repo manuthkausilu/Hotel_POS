@@ -69,7 +69,7 @@ export default function Drawer({ isOpen, onClose }: DrawerProps) {
                   <Text style={styles.userName} numberOfLines={1}>
                     {user.name || user.email}
                   </Text>
-                  <Text style={styles.userRole}>Administrator</Text>
+                  <Text style={styles.userRole}>User Name</Text>
                 </View>
               </View>
             )}

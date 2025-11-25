@@ -5,7 +5,6 @@ import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Drawer from '../components/Navigation';
 import { useAuth } from '../context/AuthContext';
-import NotificationList from '../components/Notification';
 
 export default function HomeScreen() {
   const { user, logout } = useAuth();
@@ -45,23 +44,12 @@ export default function HomeScreen() {
           <Text style={styles.title}>POS</Text>
           <Text style={styles.subtitle}>Management System</Text>
         </View>
-        
-        {user && (
-          <View style={styles.userCard}>
-            <View style={styles.userIconWrapper}>
-              <Ionicons name="person" size={24} color="white" />
-            </View>
-            <View style={styles.userTextContainer}>
-              <Text style={styles.welcomeText}>Welcome back</Text>
-              <Text style={styles.userName}>
-                {user.name || user.email}
-              </Text>
-            </View>
-          </View>
-        )}
-      </View>
 
-      <NotificationList />
+        <Pressable style={styles.navBox} onPress={() => router.push('./orders')}>
+          <Ionicons name="cart" size={24} color="#C084FC" />
+          <Text style={styles.navText}>Go to Orders</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -194,5 +182,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 17,
     letterSpacing: 0.5,
+  },
+  navBox: {
+    backgroundColor: '#F3E8FF',
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  navText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginTop: 8,
   },
 });

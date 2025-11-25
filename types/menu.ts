@@ -141,5 +141,5 @@ export interface MenuResponse {
 	customers: any[];
 	recipeCategoriesWithMenus: Record<string, number[]>;
 	tables: Table[];
-	categories: Category[];
+	categories?: { id: number; name?: string }[];
 }

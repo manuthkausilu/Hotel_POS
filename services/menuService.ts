@@ -17,13 +17,17 @@ export class MenuService {
 		return res.data as MenuResponse
 	}
 
+	async fetchMenuData(config?: AxiosRequestConfig): Promise<MenuResponse> {
+		return this.fetchMenu('/pos/menu_items', config)
+	}
+
 	findMenuItemById(data: MenuResponse, id: number): MenuItem | undefined {
 		return data.menus.find((m) => m.id === id)
 	}
 
 	// Relative endpoint paths (baseURL set in apiClient)
 	async fetchAllMenuItems(config?: AxiosRequestConfig): Promise<MenuItem[]> {
-		const data = await this.fetchMenu('/pos/menu_items', config)
+		const data = await this.fetchMenuData(config)
 		return data.menus
 	}
 
@@ -101,3 +105,4 @@ export const fetchAllMenuItems = (init?: AxiosRequestConfig) => menuService.fetc
 export const fetchMenuItemByIdEndpoint = (id: number, init?: AxiosRequestConfig) => menuService.fetchMenuItemByIdEndpoint(id, init)
 export const fetchMenuItemByIdNetwork = (id: number, init?: AxiosRequestConfig) => menuService.fetchMenuItemByIdNetwork(id, init)
 export const fetchMenuItemById = (id: number, init?: AxiosRequestConfig) => menuService.fetchMenuItemById(id, init)
+export const fetchMenuData = (init?: AxiosRequestConfig) => menuService.fetchMenuData(init)
