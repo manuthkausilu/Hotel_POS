@@ -38,12 +38,50 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   useEffect(() => {
     let mounted = true;
+    let receivedSub: { remove: () => void } | null = null;
+    let responseSub: { remove: () => void } | null = null;
+
     const init = async () => {
       await notificationHistoryService.cleanupExpiredNotifications();
       const list = await notificationHistoryService.getNotifications();
       if (mounted) setNotifications(list);
+
+      // register listeners (dynamic import to avoid crash if not installed)
+      try {
+        const Notifications: any = await import('expo-notifications');
+
+        // when a notification is received while app in foreground/background
+        receivedSub = Notifications?.addNotificationReceivedListener?.((notif: any) => {
+          try {
+            const content = notif?.request?.content ?? {};
+            const title = content.title ?? undefined;
+            const body = content.body ?? undefined;
+            const data = content.data ?? undefined;
+            // persist to history via context addNotification
+            addNotification({ title, body, data }).catch(() => {});
+          } catch {
+            // ignore
+          }
+        });
+
+        // when user interacts with a notification (taps)
+        responseSub = Notifications?.addNotificationResponseReceivedListener?.((response: any) => {
+          try {
+            const content = response?.notification?.request?.content ?? {};
+            const title = content.title ?? undefined;
+            const body = content.body ?? undefined;
+            const data = content.data ?? undefined;
+            addNotification({ title, body, data }).catch(() => {});
+          } catch {
+            // ignore
+          }
+        });
+      } catch {
+        // expo-notifications not available — skip listeners
+      }
     };
     init();
+
     // periodic cleanup every hour
     const interval = setInterval(() => {
       notificationHistoryService.cleanupExpiredNotifications().then(refresh).catch(() => {});
@@ -52,6 +90,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     return () => {
       mounted = false;
       clearInterval(interval);
+      if (receivedSub && typeof receivedSub.remove === 'function') receivedSub.remove();
+      if (responseSub && typeof responseSub.remove === 'function') responseSub.remove();
     };
   }, []);
 
