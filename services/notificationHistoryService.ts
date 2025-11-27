@@ -1,13 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { NotificationHistory } from '../types/Notification';
+import type { NotificationHistory } from '../types/Notification';
 
-const NOTIFICATION_HISTORY_KEY = '@notification_history';
-const EXPIRY_DAYS = 7;
+const STORAGE_KEY = '@notification_history';
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const EXPIRY_DAYS = 7;
 
 const nowIso = () => new Date().toISOString();
 
-const parseList = (raw: string | null): NotificationHistory[] => {
+const parse = (raw: string | null): NotificationHistory[] => {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as NotificationHistory[];
@@ -17,67 +17,74 @@ const parseList = (raw: string | null): NotificationHistory[] => {
   }
 };
 
-const saveList = async (list: NotificationHistory[]) => {
-  await AsyncStorage.setItem(NOTIFICATION_HISTORY_KEY, JSON.stringify(list));
+const persist = async (list: NotificationHistory[]) => {
+  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(list));
 };
 
 export const notificationHistoryService = {
   addNotification: async (payload: { title?: string; body?: string; data?: Record<string, any> }) => {
-    const list = parseList(await AsyncStorage.getItem(NOTIFICATION_HISTORY_KEY));
-    const createdAt = nowIso();
-    const expiresAt = new Date(Date.now() + EXPIRY_DAYS * MS_PER_DAY).toISOString();
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    const list = parse(raw);
+    const created_at = nowIso();
+    const expires_at = new Date(Date.now() + EXPIRY_DAYS * MS_PER_DAY).toISOString();
     const item: NotificationHistory = {
-      id: `${Date.now()}`, // simple unique id
+      id: `${Date.now()}-${Math.floor(Math.random() * 10000)}`,
       title: payload.title,
       body: payload.body,
       data: payload.data,
-      created_at: createdAt,
-      expires_at: expiresAt,
+      created_at,
+      expires_at,
       is_read: false,
     };
-    list.unshift(item); // newest first
-    await saveList(list);
+    // newest first
+    list.unshift(item);
+    await persist(list);
     return item;
   },
 
   getNotifications: async (): Promise<NotificationHistory[]> => {
-    const raw = await AsyncStorage.getItem(NOTIFICATION_HISTORY_KEY);
-    let list = parseList(raw);
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    let list = parse(raw);
     const now = Date.now();
-    const filtered = list.filter(item => {
-      const exp = new Date(item.expires_at).getTime();
-      return exp > now;
-    });
+    const filtered = list.filter(i => new Date(i.expires_at).getTime() > now);
     if (filtered.length !== list.length) {
       // prune expired
-      await saveList(filtered);
+      await persist(filtered);
     }
-    // return sorted newest first
+    // sort newest first
     filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     return filtered;
   },
 
   deleteNotification: async (id: string) => {
-    const list = parseList(await AsyncStorage.getItem(NOTIFICATION_HISTORY_KEY));
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    const list = parse(raw);
     const next = list.filter(i => i.id !== id);
-    await saveList(next);
+    await persist(next);
     return next;
   },
 
   markAsRead: async (id: string) => {
-    const list = parseList(await AsyncStorage.getItem(NOTIFICATION_HISTORY_KEY));
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    const list = parse(raw);
     const next = list.map(i => (i.id === id ? { ...i, is_read: true } : i));
-    await saveList(next);
+    await persist(next);
     return next;
   },
 
   cleanupExpiredNotifications: async () => {
-    const list = parseList(await AsyncStorage.getItem(NOTIFICATION_HISTORY_KEY));
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    const list = parse(raw);
     const now = Date.now();
-    const filtered = list.filter(item => new Date(item.expires_at).getTime() > now);
+    const filtered = list.filter(i => new Date(i.expires_at).getTime() > now);
     if (filtered.length !== list.length) {
-      await saveList(filtered);
+      await persist(filtered);
     }
     return filtered;
+  },
+
+  // convenience: clear all history (not used by default)
+  clearAll: async () => {
+    await AsyncStorage.removeItem(STORAGE_KEY);
   },
 };

@@ -28,7 +28,8 @@ export const authService = {
 
       // register FCM token with backend after successful login
       try {
-        const fcmToken = await registerFcmTokenAndStore();
+        // ensure backend receives app_type = 'pos_system'
+        const fcmToken = await registerFcmTokenAndStore('pos_system');
         console.log('FCM registration result token:', fcmToken);
       } catch (err) {
         console.warn('Failed to register FCM token after login:', err);

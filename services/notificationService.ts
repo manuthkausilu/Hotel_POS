@@ -2,21 +2,37 @@ import { Platform } from 'react-native';
 import { apiClient } from './apiClient';
 import { DeviceToken } from '../types/Notification';
 
-export const storeDeviceToken = async (deviceToken: string) => {
+export const destroyDeviceToken = async () => {
   try {
-    const response = await apiClient.post('/user/device-token', { 
-      device_token: deviceToken,
-      device_type: Platform.OS === 'ios' ? 'ios' : 'android'
-    });
+    const response = await apiClient.delete('/user/device-token');
     return response.data;
   } catch (error) {
     throw error;
   }
 };
 
-export const destroyDeviceToken = async () => {
+// Store device token but refuse Expo tokens (ExponentPushToken).
+// If an Expo token is passed, do a best-effort backend cleanup and return null.
+export const storeDeviceToken = async (deviceToken: string, appType = 'pos_system') => {
+  // refuse Expo push tokens — we only want native FCM tokens stored
+  if (typeof deviceToken === 'string' && deviceToken.startsWith('ExponentPushToken')) {
+    console.warn('Refusing to store Expo push token on backend. Attempting cleanup of any existing token.');
+    try {
+      // best-effort remove any stored token for this user
+      await destroyDeviceToken();
+      console.log('Attempted to remove Expo device token from backend (best-effort).');
+    } catch (err) {
+      console.warn('Failed to remove Expo token from backend during cleanup:', err);
+    }
+    return null;
+  }
+
   try {
-    const response = await apiClient.delete('/user/device-token');
+    const response = await apiClient.post('/user/device-token', { 
+      device_token: deviceToken,
+      device_type: Platform.OS === 'ios' ? 'ios' : 'android',
+      app_type: appType, // new: send app_type to backend
+    });
     return response.data;
   } catch (error) {
     throw error;
@@ -48,9 +64,13 @@ const getFcmTokenInternal = async (): Promise<{ token: string | null; isExpo: bo
   try {
     // dynamic import avoids crash if package isn't installed
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const messagingModule = await import('@react-native-firebase/messaging');
-    const messaging = messagingModule.default ? messagingModule.default : messagingModule;
-    const fcmToken = await messaging.getToken();
+    const messagingModule: any = await import('@react-native-firebase/messaging');
+    // instantiate the messaging module (module() or default())
+    const messagingInstance: any =
+      typeof messagingModule === 'function'
+        ? messagingModule()
+        : (messagingModule.default ? messagingModule.default() : messagingModule);
+    const fcmToken = await messagingInstance.getToken();
     if (fcmToken) return { token: fcmToken, isExpo: false };
   } catch {
     // ignore and fallback
@@ -72,7 +92,7 @@ const getFcmTokenInternal = async (): Promise<{ token: string | null; isExpo: bo
 // Public: register token with backend, but skip Expo tokens.
 // If an Expo token is detected, attempt to remove any existing token on backend (best-effort),
 // and return null so callers know nothing was stored.
-export const registerFcmTokenAndStore = async (): Promise<string | null> => {
+export const registerFcmTokenAndStore = async (appType = 'pos_system'): Promise<string | null> => {
   const { token, isExpo } = await getFcmTokenInternal();
 
   if (!token) {
@@ -93,7 +113,7 @@ export const registerFcmTokenAndStore = async (): Promise<string | null> => {
   }
 
   try {
-    await storeDeviceToken(token);
+    await storeDeviceToken(token, appType); // pass app_type through
     console.log('Device token registered with backend:', token);
     return token;
   } catch (err) {
