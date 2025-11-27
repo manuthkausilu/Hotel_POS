@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LoginRequest, LoginResponse } from '../types/Auth';
 import { User } from '../types/User';
 import { apiClient, TOKEN_KEY } from './apiClient';
+import { registerFcmTokenAndStore, destroyDeviceToken } from './notificationService';
 
 export const authService = {
   login: async (email: string, password: string): Promise<LoginResponse> => {
@@ -24,6 +25,14 @@ export const authService = {
       await AsyncStorage.setItem(TOKEN_KEY, response.data.token);
       console.log('✅ Token saved:', response.data.token);
       console.log('✅ Token type:', response.data.token_type);
+
+      // register FCM token with backend after successful login
+      try {
+        const fcmToken = await registerFcmTokenAndStore();
+        console.log('FCM registration result token:', fcmToken);
+      } catch (err) {
+        console.warn('Failed to register FCM token after login:', err);
+      }
     }
 
     if (response.data.user) {
@@ -38,13 +47,22 @@ export const authService = {
     const token = await AsyncStorage.getItem(TOKEN_KEY);
     console.log('🔴 Logging out with token:', token);
     
+    // attempt to remove device token from backend first (best-effort)
+    try {
+      await destroyDeviceToken();
+      console.log('✅ Device token removed from backend');
+    } catch (err) {
+      console.warn('Failed to remove device token from backend during logout:', err);
+    }
+
     try {
       await apiClient.post('/logout');
     } catch (error) {
       console.error('Logout API error:', error);
     } finally {
       await AsyncStorage.removeItem(TOKEN_KEY);
-      console.log('🗑️ Token removed');
+      await AsyncStorage.removeItem('user');
+      console.log('🗑️ Token and user removed');
     }
   },
 

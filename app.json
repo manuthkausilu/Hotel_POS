@@ -22,7 +22,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.rayff60.hotel_pos",
+      "package": "com.ishani_ekanayake.trackerstay",
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "WAKE_LOCK",
