@@ -7,7 +7,7 @@ import Drawer from '../components/Navigation';
 import { useAuth } from '../context/AuthContext';
 import OrdersScreen from './(tabs)/orders';
 import { NotificationProvider, useNotifications } from '../context/NotificationContext';
-import { registerFcmTokenAndStore } from '../services/notificationService';
+import { registerFcmTokenAndStore, initNotificationListeners } from '../services/notificationService';
 
 // NotificationModal: renders notification history inside a modal-like full-screen overlay
 const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ visible, onClose }) => {
@@ -95,6 +95,20 @@ export default function HomeScreen() {
 				console.warn('Error registering push token:', err);
 			}
 		})();
+
+		// register notification listeners early (persist incoming notifications)
+		let cleanupNotifications: (() => void) | null = null;
+		(async () => {
+			try {
+				cleanupNotifications = await initNotificationListeners();
+			} catch {
+				cleanupNotifications = null;
+			}
+		})();
+
+		return () => {
+			if (cleanupNotifications) cleanupNotifications();
+		};
 	}, []);
 
 	const checkToken = async () => {

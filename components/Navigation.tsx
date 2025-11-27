@@ -16,6 +16,7 @@ export default function Drawer({ isOpen, onClose }: DrawerProps) {
   const menuItems = [
     { icon: 'home-outline', label: 'Dashboard', route: '/' },
     { icon: 'restaurant-outline', label: 'Menu', route: '../menu' },
+    { icon: 'notifications-outline', label: 'Notifications', route: '../debug/asyncStorageDebug' },
   ];
 
   const handleNavigate = (route: any) => {

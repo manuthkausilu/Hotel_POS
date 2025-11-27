@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { Alert } from 'react-native';
 import { notificationHistoryService } from '../services/notificationHistoryService';
+import { initNotificationListeners, onNotificationSaved, offNotificationSaved } from '../services/notificationService';
 import type { NotificationHistory } from '../types/Notification';
 
 type NotificationContextValue = {
@@ -21,9 +23,18 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   };
 
   const addNotification = async (payload: { title?: string; body?: string; data?: Record<string, any> }) => {
-    const item = await notificationHistoryService.addNotification(payload);
-    setNotifications(prev => [item, ...prev]);
-    return item;
+    try {
+      const item = await notificationHistoryService.addNotification(payload);
+      setNotifications(prev => {
+        if (prev.some(p => p.id === item.id)) return prev;
+        return [item, ...prev];
+      });
+      Alert.alert('Notification saved', item.title ?? 'Notification saved to history.');
+      return item;
+    } catch (err) {
+      Alert.alert('Notification not saved', 'Failed to save notification.');
+      throw err;
+    }
   };
 
   const deleteNotification = async (id: string) => {
@@ -38,47 +49,31 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   useEffect(() => {
     let mounted = true;
-    let receivedSub: { remove: () => void } | null = null;
-    let responseSub: { remove: () => void } | null = null;
+    let cleanupListeners: (() => void) | null = null;
+
+    const handleSaved = (item: NotificationHistory) => {
+      if (!mounted) return;
+      // prepend new item if not already present
+      setNotifications(prev => {
+        if (prev.some(p => p.id === item.id)) return prev;
+        return [item, ...prev];
+      });
+    };
 
     const init = async () => {
       await notificationHistoryService.cleanupExpiredNotifications();
       const list = await notificationHistoryService.getNotifications();
       if (mounted) setNotifications(list);
 
-      // register listeners (dynamic import to avoid crash if not installed)
+      // register centralized listeners (may be a no-op if already registered)
       try {
-        const Notifications: any = await import('expo-notifications');
-
-        // when a notification is received while app in foreground/background
-        receivedSub = Notifications?.addNotificationReceivedListener?.((notif: any) => {
-          try {
-            const content = notif?.request?.content ?? {};
-            const title = content.title ?? undefined;
-            const body = content.body ?? undefined;
-            const data = content.data ?? undefined;
-            // persist to history via context addNotification
-            addNotification({ title, body, data }).catch(() => {});
-          } catch {
-            // ignore
-          }
-        });
-
-        // when user interacts with a notification (taps)
-        responseSub = Notifications?.addNotificationResponseReceivedListener?.((response: any) => {
-          try {
-            const content = response?.notification?.request?.content ?? {};
-            const title = content.title ?? undefined;
-            const body = content.body ?? undefined;
-            const data = content.data ?? undefined;
-            addNotification({ title, body, data }).catch(() => {});
-          } catch {
-            // ignore
-          }
-        });
+        cleanupListeners = await initNotificationListeners();
       } catch {
-        // expo-notifications not available — skip listeners
+        cleanupListeners = null;
       }
+
+      // subscribe to saved-notification events from service
+      onNotificationSaved(handleSaved);
     };
     init();
 
@@ -90,8 +85,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     return () => {
       mounted = false;
       clearInterval(interval);
-      if (receivedSub && typeof receivedSub.remove === 'function') receivedSub.remove();
-      if (responseSub && typeof responseSub.remove === 'function') responseSub.remove();
+      if (cleanupListeners) cleanupListeners();
+      offNotificationSaved(handleSaved);
     };
   }, []);
 

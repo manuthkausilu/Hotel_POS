@@ -1,6 +1,7 @@
-import { Platform } from 'react-native';
 import { apiClient } from './apiClient';
 import { DeviceToken } from '../types/Notification';
+import { notificationHistoryService } from './notificationHistoryService';
+import { Platform, Alert } from 'react-native';
 
 export const destroyDeviceToken = async () => {
   try {
@@ -120,4 +121,144 @@ export const registerFcmTokenAndStore = async (appType = 'pos_system'): Promise<
     console.warn('Failed to store device token on backend:', err);
     return null;
   }
+};
+
+let _listenersRegistered = false;
+
+// Notification saved callbacks (moved to module scope)
+type NotificationSavedCallback = (item: any) => void;
+const _savedCallbacks = new Set<NotificationSavedCallback>();
+
+// Helper to emit saved notification to all listeners
+const emitSaved = (item: any) => {
+  _savedCallbacks.forEach(cb => {
+	try {
+	  cb(item);
+	} catch (err) {
+	  // Ignore errors in individual callbacks
+	  console.warn('Error in notification saved callback:', err);
+	}
+  });
+};
+
+export const onNotificationSaved = (cb: NotificationSavedCallback) => {
+  _savedCallbacks.add(cb);
+  return () => _savedCallbacks.delete(cb);
+};
+export const offNotificationSaved = (cb: NotificationSavedCallback) => {
+  _savedCallbacks.delete(cb);
+};
+
+/**
+ * Initialize notification listeners (expo-notifications) once.
+ * Returns a cleanup function to remove listeners.
+ */
+export const initNotificationListeners = async (): Promise<() => void> => {
+	// avoid multiple registrations
+	if (_listenersRegistered) return () => {};
+	try {
+		const Notifications: any = await import('expo-notifications');
+
+		// ensure notifications are shown in foreground
+		if (typeof Notifications.setNotificationHandler === 'function') {
+			Notifications.setNotificationHandler({
+				handleNotification: async () => ({
+					shouldShowAlert: true,
+					shouldPlaySound: false,
+					shouldSetBadge: false,
+				}),
+			});
+		}
+
+		// Create Android channel for heads-up notifications (pop-up)
+		try {
+			if (Platform.OS === 'android' && typeof Notifications.setNotificationChannelAsync === 'function') {
+				await Notifications.setNotificationChannelAsync('default', {
+					name: 'Default',
+					importance: Notifications.AndroidImportance.MAX ?? 5,
+					sound: 'default',
+					vibrationPattern: [0, 250, 250, 250],
+					lightColor: '#FF6B6B',
+				});
+			}
+		} catch {
+			// ignore channel creation errors
+		}
+
+		const receivedSub = Notifications?.addNotificationReceivedListener?.(async (notif: any) => {
+			try {
+				const content = notif?.request?.content ?? {};
+				const title = content.title ?? undefined;
+				const body = content.body ?? undefined;
+				const data = content.data ?? undefined;
+				const item = await notificationHistoryService.addNotification({ title, body, data });
+
+				// emit to subscribers (NotificationProvider will update UI)
+				emitSaved(item);
+
+				// present a local/system notification to ensure pop-up (foreground)
+				try {
+					await Notifications.presentNotificationAsync({
+						title: item.title ?? undefined,
+						body: item.body ?? undefined,
+						data: item.data ?? undefined,
+						android: {
+							channelId: 'default',
+							priority: 'max',
+						},
+						ios: {
+							sound: 'default',
+						},
+					});
+				} catch {
+					// ignore present errors
+				}
+
+				// optional user feedback
+				Alert.alert('Notification saved', item.title ?? 'A notification was saved to history.');
+			} catch (err) {
+				Alert.alert('Notification not saved', 'Failed to save incoming notification.');
+			}
+		});
+
+		const responseSub = Notifications?.addNotificationResponseReceivedListener?.(async (response: any) => {
+			try {
+				const content = response?.notification?.request?.content ?? {};
+				const title = content.title ?? undefined;
+				const body = content.body ?? undefined;
+				const data = content.data ?? undefined;
+				const item = await notificationHistoryService.addNotification({ title, body, data });
+
+				// emit to subscribers (NotificationProvider will update UI)
+				emitSaved(item);
+
+				// when user taps, optionally present (usually not needed) — kept for parity
+				try {
+					await Notifications.presentNotificationAsync({
+						title: item.title ?? undefined,
+						body: item.body ?? undefined,
+						data: item.data ?? undefined,
+						android: { channelId: 'default', priority: 'max' },
+						ios: { sound: 'default' },
+					});
+				} catch {
+					// ignore
+				}
+
+				Alert.alert('Notification saved', item.title ?? 'A notification was saved to history.');
+			} catch (err) {
+				Alert.alert('Notification not saved', 'Failed to save notification response.');
+			}
+		});
+
+		_listenersRegistered = true;
+		return () => {
+			if (receivedSub && typeof receivedSub.remove === 'function') receivedSub.remove();
+			if (responseSub && typeof responseSub.remove === 'function') responseSub.remove();
+			_listenersRegistered = false;
+		};
+	} catch {
+		// expo-notifications not available
+		return () => {};
+	}
 };

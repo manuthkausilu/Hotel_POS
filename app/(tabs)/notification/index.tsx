@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, Pressable, StyleSheet, RefreshControl } from 'react-native';
 import { notificationHistoryService } from '../../../services/notificationHistoryService';
 import type { NotificationHistory } from '../../../types/Notification';
+import { onNotificationSaved } from '../../../services/notificationService';
 
 export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState<NotificationHistory[]>([]);
@@ -21,6 +22,20 @@ export default function NotificationsScreen() {
 
   useEffect(() => {
     refresh();
+
+    // subscribe to saved notification events so this screen updates live
+    const handleSaved = (item: NotificationHistory) => {
+      setNotifications(prev => {
+        if (prev.some(p => p.id === item.id)) return prev;
+        return [item, ...prev];
+      });
+    };
+    const unsub = onNotificationSaved(handleSaved);
+
+    return () => {
+      // cleanup subscription
+      try { unsub(); } catch { /* ignore */ }
+    };
   }, []);
 
   const deleteNotification = async (id: string) => {
