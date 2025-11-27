@@ -5,11 +5,13 @@ import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Drawer from '../components/Navigation';
 import { useAuth } from '../context/AuthContext';
+import OrdersScreen from './(tabs)/orders';
 
 export default function HomeScreen() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [hasBadge, setHasBadge] = useState(true); // new: controls small red dot
 
   useEffect(() => {
     checkToken();
@@ -31,25 +33,25 @@ export default function HomeScreen() {
       
       <View style={styles.topBar}>
         <Pressable style={styles.menuButton} onPress={() => setDrawerOpen(true)}>
-          <Ionicons name="menu" size={38} color="#C084FC" />
+          <Ionicons name="menu" size={38} color="#FF6B6B" />
         </Pressable>
-        <Text style={styles.topBarTitle}>Dashboard</Text>
-        <View style={styles.placeholder} />
-      </View>
-
-      <View style={styles.backgroundCircle1} />
-      <View style={styles.backgroundCircle2} />
-      <View style={styles.card}>
-        <View style={styles.header}>
-          <Text style={styles.title}>POS</Text>
-          <Text style={styles.subtitle}>Management System</Text>
+        <Text style={styles.topBarTitle}>Trackerstay</Text>
+        {/* notification bell */}
+        <View style={styles.rightControls}>
+          <Pressable
+            onPress={() => { console.log('Notifications pressed'); setHasBadge(false); }}
+            style={styles.bellButton}
+          >
+            <Ionicons name="notifications" size={28} color="#FF6B6B" />
+            {hasBadge && <View style={styles.badge} />}
+          </Pressable>
         </View>
-
-        <Pressable style={styles.navBox} onPress={() => router.push('./orders')}>
-          <Ionicons name="cart" size={24} color="#C084FC" />
-          <Text style={styles.navText}>Go to Orders</Text>
-        </Pressable>
       </View>
+{/* OrdersScreen: displays menu items, cart UI and order submission modal.................... */}
+      <View style={{ flex: 1 }}>
+        <OrdersScreen />
+      </View>
+{/* .......................................................................................... */}
     </View>
   );
 }
@@ -57,7 +59,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F3FF',
+    backgroundColor: '#FFFFFF',
     overflow: 'hidden',
   },
   topBar: {
@@ -83,15 +85,29 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1F2937',
   },
-  placeholder: {
+  rightControls: {
     width: 44,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  bellButton: {
+    padding: 6,
+  },
+  badge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FF6B6B',
   },
   backgroundCircle1: {
     position: 'absolute',
     width: 500,
     height: 500,
     borderRadius: 250,
-    backgroundColor: 'rgba(196, 181, 253, 0.12)',
+    backgroundColor: 'rgba(255,107,107,0.08)',
     top: -200,
     right: -100,
   },
@@ -100,7 +116,7 @@ const styles = StyleSheet.create({
     width: 400,
     height: 400,
     borderRadius: 200,
-    backgroundColor: 'rgba(221, 214, 254, 0.15)',
+    backgroundColor: 'rgba(255,107,107,0.06)',
     bottom: -150,
     left: -100,
   },
@@ -110,7 +126,7 @@ const styles = StyleSheet.create({
     padding: 40,
     margin: 24,
     marginTop: 40,
-    shadowColor: '#C084FC',
+    shadowColor: '#FF6B6B',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.12,
     shadowRadius: 24,
@@ -145,7 +161,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#C084FC',
+    backgroundColor: '#FF6B6B',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
@@ -155,7 +171,7 @@ const styles = StyleSheet.create({
   },
   welcomeText: {
     fontSize: 12,
-    color: '#C084FC',
+    color: '#FF6B6B',
     marginBottom: 4,
     fontWeight: '600',
     textTransform: 'uppercase',
@@ -167,10 +183,10 @@ const styles = StyleSheet.create({
     color: '#1F2937',
   },
   logoutButton: {
-    backgroundColor: '#C084FC',
+    backgroundColor: '#FF6B6B',
     padding: 18,
     borderRadius: 16,
-    shadowColor: '#C084FC',
+    shadowColor: '#FF6B6B',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -184,7 +200,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   navBox: {
-    backgroundColor: '#F3E8FF',
+    backgroundColor: '#FFF1F1',
     borderRadius: 16,
     padding: 20,
     alignItems: 'center',

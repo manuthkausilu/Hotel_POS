@@ -15,11 +15,7 @@ export default function Drawer({ isOpen, onClose }: DrawerProps) {
 
   const menuItems = [
     { icon: 'home-outline', label: 'Dashboard', route: '/' },
-    { icon: 'receipt-outline', label: 'Orders', route: '../orders' },
     { icon: 'restaurant-outline', label: 'Menu', route: '../menu' },
-    { icon: 'people-outline', label: 'Customers', route: '/customers' },
-    { icon: 'stats-chart-outline', label: 'Reports', route: '/reports' },
-    { icon: 'settings-outline', label: 'Settings', route: '../settings' },
   ];
 
   const handleNavigate = (route: any) => {
@@ -87,7 +83,7 @@ export default function Drawer({ isOpen, onClose }: DrawerProps) {
                 onPress={() => handleNavigate(item.route)}
               >
                 <View style={styles.menuIconContainer}>
-                  <Ionicons name={item.icon as any} size={22} color="#C084FC" />
+                  <Ionicons name={item.icon as any} size={22} color="#FF6B6B" />
                 </View>
                 <Text style={styles.menuLabel}>{item.label}</Text>
               </Pressable>
@@ -140,7 +136,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    backgroundColor: '#C084FC',
+    backgroundColor: '#FF6B6B',
     padding: 24,
     paddingTop: 48,
     paddingBottom: 28,
@@ -213,7 +209,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#FAF5FF',
+    backgroundColor: '#FFF1F1',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
@@ -236,16 +232,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: '#FEF2F2',
+    backgroundColor: '#FFF1F1',
     borderRadius: 10,
     gap: 8,
   },
   logoutButtonPressed: {
-    backgroundColor: '#FEE2E2',
+    backgroundColor: '#FFECEC',
   },
   logoutText: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#DC2626',
+    color: '#FF6B6B',
   },
 });
