@@ -21,7 +21,7 @@ const first = (...vals: any[]) => {
 };
 
 // Normalize any incoming payload/record so title/body/data are extracted from common shapes
-const normalizePayload = (raw: any) => {
+export const normalizePayload = (raw: any) => {
   if (!raw) return { title: undefined, body: undefined, data: undefined };
 
   const maybeData = tryParse(raw.data) ?? raw.data ?? tryParse(raw?.message?.data) ?? raw?.message?.data;
@@ -32,22 +32,109 @@ const normalizePayload = (raw: any) => {
     tryParse(raw.notification) ??
     tryParse(maybeMessage?.notification);
 
-  const title = first(
+  // helper: recursively search object (and stringified JSON) for keys that look like title/body
+  const findFieldInObject = (obj: any, nameTokens: string[]): string | undefined => {
+    if (!obj) return undefined;
+    if (typeof obj === 'string') {
+      // try parse string as JSON and search inside
+      const parsed = tryParse(obj);
+      if (parsed) return findFieldInObject(parsed, nameTokens);
+      // otherwise no structured data here
+      return undefined;
+    }
+    if (typeof obj !== 'object') return undefined;
+
+    // first pass: keys that contain the tokens
+    for (const k of Object.keys(obj)) {
+      const val = obj[k];
+      const lk = String(k).toLowerCase();
+      for (const token of nameTokens) {
+        if (lk.includes(token)) {
+          if (typeof val === 'string' && val.trim()) return val;
+          if (typeof val === 'object') {
+            const nested = findFieldInObject(val, nameTokens);
+            if (nested) return nested;
+          } else if (typeof val === 'number' || typeof val === 'boolean') {
+            // convert non-string primitive to string fallback
+            return String(val);
+          }
+        }
+      }
+    }
+
+    // second pass: search nested objects / stringified JSON
+    for (const k of Object.keys(obj)) {
+      const val = obj[k];
+      if (typeof val === 'object') {
+        const nested = findFieldInObject(val, nameTokens);
+        if (nested) return nested;
+      } else if (typeof val === 'string') {
+        const parsed = tryParse(val);
+        if (parsed) {
+          const nested = findFieldInObject(parsed, nameTokens);
+          if (nested) return nested;
+        }
+      }
+    }
+
+    return undefined;
+  };
+
+  // helper: pick first non-empty string anywhere in object as last-resort fallback
+  const findAnyString = (obj: any): string | undefined => {
+    if (!obj) return undefined;
+    if (typeof obj === 'string') {
+      const s = obj.trim();
+      if (s) return s;
+      return undefined;
+    }
+    if (typeof obj !== 'object') return undefined;
+    for (const k of Object.keys(obj)) {
+      const val = obj[k];
+      if (typeof val === 'string' && val.trim()) return val;
+      if (typeof val === 'object') {
+        const nested = findAnyString(val);
+        if (nested) return nested;
+      } else if (typeof val === 'number' || typeof val === 'boolean') {
+        return String(val);
+      }
+    }
+    return undefined;
+  };
+
+  // common search tokens
+  const titleTokens = ['title', 'gcm.notification.title', 'notification.title', 'message.notification.title', 'alert', 'subject'];
+  const bodyTokens = ['body', 'message', 'alert', 'gcm.notification.body', 'notification.body', 'message.notification.body', 'text'];
+
+  const titleCandidate = first(
     raw.title,
     maybeNotification?.title,
     raw.notification?.title,
     maybeMessage?.notification?.title,
     maybeData?.title,
-    maybeData?.notification?.title
+    maybeData?.notification?.title,
+    // search nested/stringified payload keys
+    findFieldInObject(maybeData, titleTokens),
+    findFieldInObject(raw, titleTokens)
   );
 
-  const body = first(
+  const bodyCandidate = first(
     raw.body,
     maybeNotification?.body,
     raw.notification?.body,
     maybeMessage?.notification?.body,
-    maybeData?.body
+    maybeData?.body,
+    // search nested/stringified payload keys
+    findFieldInObject(maybeData, bodyTokens),
+    findFieldInObject(raw, bodyTokens)
   );
+
+  // last-resort: any non-empty string in data or raw
+  const fallbackTitle = titleCandidate ?? findAnyString(maybeData) ?? findAnyString(raw);
+  const fallbackBody = bodyCandidate ?? findAnyString(maybeData) ?? findAnyString(raw);
+
+  const title = typeof titleCandidate === 'string' && titleCandidate.trim() ? titleCandidate : (typeof fallbackTitle === 'string' && fallbackTitle.trim() ? fallbackTitle : undefined);
+  const body = typeof bodyCandidate === 'string' && bodyCandidate.trim() ? bodyCandidate : (typeof fallbackBody === 'string' && fallbackBody.trim() ? fallbackBody : undefined);
 
   // choose a compact object for data if present
   const data = typeof maybeData === 'object' ? maybeData : (maybeData ? { value: maybeData } : undefined);

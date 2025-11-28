@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, Alert } from 'react-native';
 import Drawer from '../components/Navigation';
 import { useAuth } from '../context/AuthContext';
 import OrdersScreen from './(tabs)/orders';
@@ -12,10 +12,12 @@ import { registerFcmTokenAndStore, initNotificationListeners } from '../services
 // NotificationModal: renders notification history inside a modal-like full-screen overlay
 const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ visible, onClose }) => {
 	// lightweight import of hooks from the notification context
-	const { notifications, refresh, deleteNotification, markAsRead } = useNotifications();
+	const { notifications, refresh, deleteNotification, markAsRead, clearAll } = useNotifications();
+	const [selectedId, setSelectedId] = useState<string | null>(null);
 
 	useEffect(() => {
 		if (visible) refresh();
+		if (!visible) setSelectedId(null);
 	}, [visible]);
 
 	return (
@@ -26,7 +28,16 @@ const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = (
 				<View style={styles.modalCard}>
 					<View style={styles.modalHeader}>
 						<Text style={styles.modalTitle}>Notifications</Text>
-						<Pressable onPress={onClose} style={styles.modalClose}>
+						<Pressable onPress={() => {
+							// confirm clear all
+							Alert.alert('Confirm', 'Clear all notification history?', [
+								{ text: 'Cancel', style: 'cancel' },
+								{ text: 'Clear', style: 'destructive', onPress: async () => { await clearAll(); } },
+							]);
+						}} style={{ padding: 8 }}>
+							<Text style={{ color: '#FF6B6B', fontWeight: '700' }}>Clear All</Text>
+						</Pressable>
+						<Pressable onPress={() => { setSelectedId(null); onClose(); }} style={styles.modalClose}>
 							<Ionicons name="close" size={22} color="#374151" />
 						</Pressable>
 					</View>
@@ -38,23 +49,27 @@ const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = (
 					) : (
 						<React.Fragment>
 							{notifications.map((item) => (
-								<View key={item.id} style={[styles.item, item.is_read ? styles.read : styles.unread]}>
+								<Pressable
+									key={item.id}
+									onPress={async () => {
+										await markAsRead(item.id);
+										setSelectedId(item.id);
+									}}
+									style={[styles.item, item.is_read ? styles.read : styles.unread]}
+								>
 									<View style={{ flex: 1 }}>
 										<Text style={styles.title}>{item.title ?? 'No title'}</Text>
 										<Text style={styles.body}>{item.body ?? ''}</Text>
 										<Text style={styles.meta}>Expires: {new Date(item.expires_at).toLocaleString()}</Text>
 									</View>
 									<View style={styles.actions}>
-										{!item.is_read && (
-											<Pressable onPress={() => markAsRead(item.id)} style={styles.actionButton}>
-												<Text style={styles.actionText}>Mark</Text>
+										{selectedId === item.id && (
+											<Pressable onPress={async () => { await deleteNotification(item.id); setSelectedId(null); }} style={[styles.actionButton, { backgroundColor: '#FF6B6B' }]}>
+												<Text style={[styles.actionText, { color: 'white' }]}>Delete</Text>
 											</Pressable>
 										)}
-										<Pressable onPress={() => deleteNotification(item.id)} style={[styles.actionButton, { backgroundColor: '#FF6B6B' }]}>
-											<Text style={[styles.actionText, { color: 'white' }]}>Delete</Text>
-										</Pressable>
 									</View>
-								</View>
+								</Pressable>
 							))}
 						</React.Fragment>
 					)}

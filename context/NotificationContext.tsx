@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Alert } from 'react-native';
-import { notificationHistoryService } from '../services/notificationHistoryService';
+import { notificationHistoryService, normalizePayload } from '../services/notificationHistoryService';
 import { initNotificationListeners, onNotificationSaved, offNotificationSaved } from '../services/notificationService';
 import type { NotificationHistory } from '../types/Notification';
 
@@ -10,6 +10,7 @@ type NotificationContextValue = {
   addNotification: (payload: { title?: string; body?: string; data?: Record<string, any> }) => Promise<NotificationHistory>;
   deleteNotification: (id: string) => Promise<void>;
   markAsRead: (id: string) => Promise<void>;
+  clearAll: () => Promise<void>;
 };
 
 const NotificationContext = createContext<NotificationContextValue | undefined>(undefined);
@@ -17,17 +18,32 @@ const NotificationContext = createContext<NotificationContextValue | undefined>(
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<NotificationHistory[]>([]);
 
+  const clearAll = async () => {
+    try {
+      await notificationHistoryService.clearAll();
+      setNotifications([]);
+    } catch {
+      // ignore
+    }
+  };
+
   const refresh = async () => {
     const list = await notificationHistoryService.getNotifications();
-    setNotifications(list);
+    // ensure each item is normalized for title/body/data before exposing to consumers
+    const normalized = list.map(i => {
+      const n = normalizePayload(i);
+      return { ...i, title: i.title ?? n.title ?? 'No title', body: i.body ?? n.body ?? '', data: i.data ?? n.data };
+    });
+    setNotifications(normalized);
   };
 
   const addNotification = async (payload: { title?: string; body?: string; data?: Record<string, any> }) => {
     try {
       const item = await notificationHistoryService.addNotification(payload);
+      const n = normalizePayload(item);
       setNotifications(prev => {
         if (prev.some(p => p.id === item.id)) return prev;
-        return [item, ...prev];
+        return [{ ...item, title: item.title ?? n.title ?? 'No title', body: item.body ?? n.body ?? '', data: item.data ?? n.data }, ...prev];
       });
       Alert.alert('Notification saved', item.title ?? 'Notification saved to history.');
       return item;
@@ -54,26 +70,35 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const handleSaved = (item: NotificationHistory) => {
       if (!mounted) return;
       // prepend new item if not already present
+      const n = normalizePayload(item);
       setNotifications(prev => {
         if (prev.some(p => p.id === item.id)) return prev;
-        return [item, ...prev];
+        return [{ ...item, title: item.title ?? n.title ?? 'No title', body: item.body ?? n.body ?? '', data: item.data ?? n.data }, ...prev];
       });
     };
 
     const init = async () => {
-      await notificationHistoryService.cleanupExpiredNotifications();
-      const list = await notificationHistoryService.getNotifications();
-      if (mounted) setNotifications(list);
-
-      // register centralized listeners (may be a no-op if already registered)
+      // register centralized listeners first so incoming notifications are saved immediately
       try {
         cleanupListeners = await initNotificationListeners();
       } catch {
         cleanupListeners = null;
       }
 
-      // subscribe to saved-notification events from service
+      // subscribe to saved-notification events from service immediately
       onNotificationSaved(handleSaved);
+
+      await notificationHistoryService.cleanupExpiredNotifications();
+      const list = await notificationHistoryService.getNotifications();
+
+      if (mounted) {
+        // normalize initial list before exposing
+        const normalized = list.map(i => {
+          const n = normalizePayload(i);
+          return { ...i, title: i.title ?? n.title ?? 'No title', body: i.body ?? n.body ?? '', data: i.data ?? n.data };
+        });
+        setNotifications(normalized);
+      }
     };
     init();
 
@@ -91,7 +116,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   }, []);
 
   return (
-    <NotificationContext.Provider value={{ notifications, refresh, addNotification, deleteNotification, markAsRead }}>
+    <NotificationContext.Provider value={{ notifications, refresh, addNotification, deleteNotification, markAsRead, clearAll }}>
       {children}
     </NotificationContext.Provider>
   );

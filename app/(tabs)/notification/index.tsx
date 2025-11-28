@@ -1,61 +1,46 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, Pressable, StyleSheet, RefreshControl } from 'react-native';
-import { notificationHistoryService } from '../../../services/notificationHistoryService';
+import { View, Text, FlatList, Pressable, StyleSheet, RefreshControl, Alert } from 'react-native';
+import { normalizePayload, notificationHistoryService } from '../../../services/notificationHistoryService';
 import type { NotificationHistory } from '../../../types/Notification';
 import { onNotificationSaved } from '../../../services/notificationService';
+import { useNotifications } from '../../../context/NotificationContext';
 
 export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState<NotificationHistory[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { clearAll } = useNotifications();
 
-  // helper: safe JSON parse
-  const tryParse = (v: any) => {
-    try {
-      return typeof v === 'string' ? JSON.parse(v) : v;
-    } catch {
-      return null;
-    }
-  };
-
-  // helper: pick first non-null/undefined from list
-  const first = (...vals: any[]) => {
-    for (const v of vals) if (v !== null && v !== undefined) return v;
-    return undefined;
-  };
-
-  // normalize a stored item into predictable title/body (keeps other fields)
-  const normalizeItem = (item: any) => {
-    const maybeData = tryParse(item?.data);
-    const maybeMessage = item?.message ?? tryParse(item?.message);
-    const maybeNotification = item?.notification ?? maybeMessage?.notification ?? tryParse(item?.notification);
-
-    const title = first(
-      item?.title,
-      maybeNotification?.title,
-      item?.notification?.title,
-      maybeMessage?.notification?.title,
-      maybeData?.title,
-      maybeData?.notification?.title
-    ) ?? 'No title';
-
-    const body = first(
-      item?.body,
-      maybeNotification?.body,
-      item?.notification?.body,
-      maybeMessage?.notification?.body,
-      maybeData?.body
-    ) ?? '';
-
-    return { ...item, title, body };
+  const handleClearAll = () => {
+    Alert.alert('Confirm', 'Clear all notification history?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Clear',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await notificationHistoryService.clearAll();
+            setNotifications([]);
+            setSelectedId(null);
+          } catch {
+            Alert.alert('Error', 'Failed to clear history.');
+          }
+        },
+      },
+    ]);
   };
 
   const refresh = async () => {
     try {
       setRefreshing(true);
       const list = await notificationHistoryService.getNotifications();
-      // normalize each item so UI shows values if present anywhere in the payload
-      const normalized = (list as any[]).map(normalizeItem);
+      // ensure UI gets normalized titles/bodies (handles legacy shapes)
+      const normalized = (list as any[]).map((i) => {
+        const n = normalizePayload(i);
+        return { ...i, title: i.title ?? n.title ?? 'No title', body: i.body ?? n.body ?? '', data: i.data ?? n.data };
+      });
       setNotifications(normalized as NotificationHistory[]);
+      setSelectedId(null);
     } catch {
       // ignore
     } finally {
@@ -68,7 +53,8 @@ export default function NotificationsScreen() {
 
     // subscribe to saved notification events so this screen updates live
     const handleSaved = (rawItem: NotificationHistory) => {
-      const item = normalizeItem(rawItem);
+      const n = normalizePayload(rawItem);
+      const item = { ...rawItem, title: rawItem.title ?? n.title ?? 'No title', body: rawItem.body ?? n.body ?? '', data: rawItem.data ?? n.data };
       setNotifications(prev => {
         if (prev.some(p => p.id === item.id)) return prev;
         return [item, ...prev];
@@ -86,6 +72,7 @@ export default function NotificationsScreen() {
     try {
       await notificationHistoryService.deleteNotification(id);
       setNotifications((prev) => prev.filter((i) => i.id !== id));
+      if (selectedId === id) setSelectedId(null);
     } catch {
       // ignore
     }
@@ -97,13 +84,17 @@ export default function NotificationsScreen() {
       setNotifications((prev) =>
         prev.map((i) => (i.id === id ? { ...i, is_read: true } : i))
       );
+      setSelectedId(id);
     } catch {
       // ignore
     }
   };
 
   const renderItem = ({ item }: { item: NotificationHistory }) => (
-    <View style={[styles.item, item.is_read ? styles.read : styles.unread]}>
+    <Pressable
+      onPress={() => markAsRead(item.id)}
+      style={[styles.item, item.is_read ? styles.read : styles.unread]}
+    >
       <View style={{ flex: 1 }}>
         <Text style={styles.title}>{item.title ?? 'No title'}</Text>
         <Text style={styles.body}>{item.body ?? ''}</Text>
@@ -112,23 +103,25 @@ export default function NotificationsScreen() {
         </Text>
       </View>
       <View style={styles.actions}>
-        {!item.is_read && (
-          <Pressable onPress={() => markAsRead(item.id)} style={styles.actionButton}>
-            <Text style={styles.actionText}>Mark</Text>
+        {selectedId === item.id && (
+          <Pressable
+            onPress={() => deleteNotification(item.id)}
+            style={[styles.actionButton, { backgroundColor: '#FF6B6B' }]}
+          >
+            <Text style={[styles.actionText, { color: 'white' }]}>Delete</Text>
           </Pressable>
         )}
-        <Pressable
-          onPress={() => deleteNotification(item.id)}
-          style={[styles.actionButton, { backgroundColor: '#FF6B6B' }]}
-        >
-          <Text style={[styles.actionText, { color: 'white' }]}>Delete</Text>
-        </Pressable>
       </View>
-    </View>
+    </Pressable>
   );
 
   return (
     <View style={styles.container}>
+      <View style={{ padding: 12, flexDirection: 'row', justifyContent: 'flex-end' }}>
+        <Pressable style={[styles.actionButton, { backgroundColor: '#FF6B6B' }]} onPress={handleClearAll}>
+          <Text style={[styles.actionText, { color: 'white' }]}>Clear All</Text>
+        </Pressable>
+      </View>
       {notifications.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyText}>No notifications</Text>

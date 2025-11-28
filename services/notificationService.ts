@@ -208,6 +208,7 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 			// ignore channel creation errors
 		}
 
+		// expo listeners (existing)
 		const receivedSub = Notifications?.addNotificationReceivedListener?.(async (notif: any) => {
 			try {
 				const content = notif?.request?.content ?? {};
@@ -232,8 +233,7 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 					// ignore present errors
 				}
 
-				// optional user feedback
-				Alert.alert('Notification saved', item.title ?? 'A notification was saved to history.');
+				// removed success Alert to avoid intrusive popup when notifications arrive
 			} catch (err) {
 				Alert.alert('Notification not saved', 'Failed to save incoming notification.');
 			}
@@ -262,20 +262,150 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 					// ignore
 				}
 
-				Alert.alert('Notification saved', item.title ?? 'A notification was saved to history.');
+				// removed success Alert to avoid intrusive popup when user taps a notification
 			} catch (err) {
 				Alert.alert('Notification not saved', 'Failed to save notification response.');
 			}
 		});
 
+		// --- NEW: try to register react-native-firebase messaging handlers (FCM) ---
+		let fcmOnMessageUnsub: (() => void) | null = null;
+		let fcmOnNotificationOpenedUnsub: (() => void) | null = null;
+
+		try {
+			// dynamic import to avoid crash if package isn't installed
+			// eslint-disable-next-line @typescript-eslint/no-var-requires
+			const messagingModule: any = await import('@react-native-firebase/messaging');
+
+			const messaging: any =
+				typeof messagingModule === 'function'
+					? messagingModule()
+					: (messagingModule.default ? messagingModule.default() : messagingModule);
+
+			if (messaging) {
+				// foreground messages
+				if (typeof messaging.onMessage === 'function') {
+					fcmOnMessageUnsub = messaging.onMessage(async (remoteMessage: any) => {
+						try {
+							const content = remoteMessage?.notification ?? {};
+							const title = content?.title ?? remoteMessage?.data?.title;
+							const body = content?.body ?? remoteMessage?.data?.body;
+							const data = remoteMessage?.data ?? {};
+							const item = await notificationHistoryService.addNotification({ title, body, data });
+							emitSaved(item);
+						} catch {
+							// ignore save errors
+						}
+					});
+				}
+
+				// background handler (runs when JS process handles background messages)
+				if (typeof messaging.setBackgroundMessageHandler === 'function') {
+					try {
+						messaging.setBackgroundMessageHandler(async (remoteMessage: any) => {
+							try {
+								const content = remoteMessage?.notification ?? {};
+								const title = content?.title ?? remoteMessage?.data?.title;
+								const body = content?.body ?? remoteMessage?.data?.body;
+								const data = remoteMessage?.data ?? {};
+								const item = await notificationHistoryService.addNotification({ title, body, data });
+								emitSaved(item);
+							} catch {
+								// ignore
+							}
+						});
+					} catch {
+						// ignore background registration issues
+					}
+				}
+
+				// user tapped notification (when app in background)
+				if (typeof messaging.onNotificationOpenedApp === 'function') {
+					fcmOnNotificationOpenedUnsub = messaging.onNotificationOpenedApp(async (remoteMessage: any) => {
+						try {
+							const content = remoteMessage?.notification ?? {};
+							const title = content?.title ?? remoteMessage?.data?.title;
+							const body = content?.body ?? remoteMessage?.data?.body;
+							const data = remoteMessage?.data ?? {};
+							const item = await notificationHistoryService.addNotification({ title, body, data });
+							emitSaved(item);
+						} catch {
+							// ignore
+						}
+					});
+				}
+
+				// app opened from quit state via notification
+				if (typeof messaging.getInitialNotification === 'function') {
+					try {
+						const initial = await messaging.getInitialNotification();
+						if (initial) {
+							const content = initial?.notification ?? {};
+							const title = content?.title ?? initial?.data?.title;
+							const body = content?.body ?? initial?.data?.body;
+							const data = initial?.data ?? {};
+							await notificationHistoryService.addNotification({ title, body, data });
+						}
+					} catch {
+						// ignore
+					}
+				}
+			}
+		} catch {
+			// react-native-firebase/messaging not available - ignore
+		}
+
 		_listenersRegistered = true;
 		return () => {
 			if (receivedSub && typeof receivedSub.remove === 'function') receivedSub.remove();
 			if (responseSub && typeof responseSub.remove === 'function') responseSub.remove();
+			// cleanup firebase unsubscribes if present
+			try { if (fcmOnMessageUnsub) fcmOnMessageUnsub(); } catch {}
+			try { if (fcmOnNotificationOpenedUnsub) fcmOnNotificationOpenedUnsub(); } catch {}
 			_listenersRegistered = false;
 		};
 	} catch {
 		// expo-notifications not available
 		return () => {};
 	}
+};
+
+export const sendNotificationToAndroid = async (payload: {
+  title?: string;
+  body?: string;
+  data?: Record<string, any>;
+  device_tokens?: string[]; // optional: target specific tokens
+}) => {
+  try {
+    // Backend should accept device_type to filter recipients; adjust endpoint/body per your API
+    const body = {
+      title: payload.title,
+      body: payload.body,
+      data: payload.data,
+      device_type: 'android',
+      device_tokens: payload.device_tokens, // undefined = broadcast to android devices
+    };
+    const response = await apiClient.post('/notifications/send', body);
+    return response.data;
+  } catch (err) {
+    throw err;
+  }
+};
+
+export const sendNotificationToDeviceOnAndroid = async (deviceToken: string, payload: {
+  title?: string;
+  body?: string;
+  data?: Record<string, any>;
+}) => {
+  try {
+    const response = await sendNotificationToAndroid({
+      title: payload.title,
+      body: payload.body,
+      data: payload.data,
+      device_tokens: [deviceToken],
+    });
+    return response;
+  } catch (err) {
+    throw err;
+  }
 };
