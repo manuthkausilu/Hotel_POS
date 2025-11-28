@@ -7,7 +7,7 @@ import type { NotificationHistory } from '../types/Notification';
 type NotificationContextValue = {
   notifications: NotificationHistory[];
   refresh: () => Promise<void>;
-  addNotification: (payload: { title?: string; body?: string; data?: Record<string, any> }) => Promise<NotificationHistory>;
+  addNotification: (payload: { title?: string; body?: string; data?: Record<string, any> }) => Promise<NotificationHistory | null>;
   deleteNotification: (id: string) => Promise<void>;
   markAsRead: (id: string) => Promise<void>;
   clearAll: () => Promise<void>;
@@ -37,13 +37,27 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     setNotifications(normalized);
   };
 
-  const addNotification = async (payload: { title?: string; body?: string; data?: Record<string, any> }) => {
+  const addNotification = async (payload: { title?: string; body?: string; data?: Record<string, any>; id?: string; is_read?: boolean }) => {
     try {
       const item = await notificationHistoryService.addNotification(payload);
+      // notificationHistoryService.addNotification may return null (filtered metadata-only); handle that
+      if (!item) return null;
       const n = normalizePayload(item);
       setNotifications(prev => {
         if (prev.some(p => p.id === item.id)) return prev;
-        return [{ ...item, title: item.title ?? n.title ?? 'No title', body: item.body ?? n.body ?? '', data: item.data ?? n.data }, ...prev];
+        return [
+          {
+            ...item,
+            id: String(item.id ?? ''), // ensure id is string
+            title: item.title ?? n.title ?? 'No title',
+            body: item.body ?? n.body ?? '',
+            data: item.data ?? n.data,
+            created_at: item.created_at,
+            expires_at: item.expires_at,
+            is_read: item.is_read ?? false,
+          },
+          ...prev,
+        ];
       });
       Alert.alert('Notification saved', item.title ?? 'Notification saved to history.');
       return item;

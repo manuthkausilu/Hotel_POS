@@ -182,6 +182,15 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 	try {
 		const Notifications: any = await import('expo-notifications');
 
+		// request permission (best-effort) so presentNotificationAsync will show notifications
+		try {
+			if (typeof Notifications.requestPermissionsAsync === 'function') {
+				await Notifications.requestPermissionsAsync();
+			}
+		} catch {
+			// ignore permission request errors
+		}
+
 		// ensure notifications are shown in foreground
 		if (typeof Notifications.setNotificationHandler === 'function') {
 			Notifications.setNotificationHandler({
@@ -214,55 +223,55 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 				const content = notif?.request?.content ?? {};
 				const { title, body, data } = extractPayloadFromContent(content);
 
-				// addNotification will further normalize and persist the item
+				// addNotification may return null if payload is metadata-only
 				const item = await notificationHistoryService.addNotification({ title, body, data });
+				if (!item) {
+				  // nothing meaningful saved — don't emit or present
+				  return;
+				}
 
 				// emit to subscribers (NotificationProvider will update UI)
 				emitSaved(item);
 
 				// present a local/system notification to ensure pop-up (foreground)
 				try {
-					await Notifications.presentNotificationAsync({
-						title: item.title ?? undefined,
-						body: item.body ?? undefined,
-						data: item.data ?? undefined,
-						android: { channelId: 'default', priority: 'max' },
-						ios: { sound: 'default' },
-					});
+				  await Notifications.presentNotificationAsync({
+					title: item.title ?? undefined,
+					body: item.body ?? undefined,
+					data: item.data ?? undefined,
+					android: { channelId: 'default', priority: 'max' },
+					ios: { sound: 'default' },
+				  });
 				} catch {
-					// ignore present errors
+				  // ignore present errors
 				}
-
-				// removed success Alert to avoid intrusive popup when notifications arrive
 			} catch (err) {
 				Alert.alert('Notification not saved', 'Failed to save incoming notification.');
 			}
 		});
 
+		// response handler
 		const responseSub = Notifications?.addNotificationResponseReceivedListener?.(async (response: any) => {
 			try {
 				const content = response?.notification?.request?.content ?? {};
 				const { title, body, data } = extractPayloadFromContent(content);
 
 				const item = await notificationHistoryService.addNotification({ title, body, data });
+				if (!item) return;
 
-				// emit to subscribers (NotificationProvider will update UI)
 				emitSaved(item);
 
-				// optionally present as well (kept for parity)
 				try {
-					await Notifications.presentNotificationAsync({
-						title: item.title ?? undefined,
-						body: item.body ?? undefined,
-						data: item.data ?? undefined,
-						android: { channelId: 'default', priority: 'max' },
-						ios: { sound: 'default' },
-					});
+				  await Notifications.presentNotificationAsync({
+					title: item.title ?? undefined,
+					body: item.body ?? undefined,
+					data: item.data ?? undefined,
+					android: { channelId: 'default', priority: 'max' },
+					ios: { sound: 'default' },
+				  });
 				} catch {
-					// ignore
+				  // ignore
 				}
-
-				// removed success Alert to avoid intrusive popup when user taps a notification
 			} catch (err) {
 				Alert.alert('Notification not saved', 'Failed to save notification response.');
 			}
@@ -292,14 +301,28 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 							const body = content?.body ?? remoteMessage?.data?.body;
 							const data = remoteMessage?.data ?? {};
 							const item = await notificationHistoryService.addNotification({ title, body, data });
+							if (!item) return;
 							emitSaved(item);
+							// try to show local/system notification for foreground FCM messages
+							try {
+								const NotificationsLocal: any = await import('expo-notifications');
+								await NotificationsLocal.presentNotificationAsync({
+									title: item.title ?? undefined,
+									body: item.body ?? undefined,
+									data: item.data ?? undefined,
+									android: { channelId: 'default', priority: 'max' },
+									ios: { sound: 'default' },
+								});
+							} catch {
+								// ignore
+							}
 						} catch {
 							// ignore save errors
 						}
 					});
 				}
 
-				// background handler (runs when JS process handles background messages)
+				// background handler
 				if (typeof messaging.setBackgroundMessageHandler === 'function') {
 					try {
 						messaging.setBackgroundMessageHandler(async (remoteMessage: any) => {
@@ -309,7 +332,21 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 								const body = content?.body ?? remoteMessage?.data?.body;
 								const data = remoteMessage?.data ?? {};
 								const item = await notificationHistoryService.addNotification({ title, body, data });
+								if (!item) return;
 								emitSaved(item);
+								// best-effort: try to present a local notification
+								try {
+									const NotificationsLocal: any = await import('expo-notifications');
+									await NotificationsLocal.presentNotificationAsync({
+										title: item.title ?? undefined,
+										body: item.body ?? undefined,
+										data: item.data ?? undefined,
+										android: { channelId: 'default', priority: 'max' },
+										ios: { sound: 'default' },
+									});
+								} catch {
+									// ignore
+								}
 							} catch {
 								// ignore
 							}

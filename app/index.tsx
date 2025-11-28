@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import OrdersScreen from './(tabs)/orders';
 import { NotificationProvider, useNotifications } from '../context/NotificationContext';
 import { registerFcmTokenAndStore, initNotificationListeners } from '../services/notificationService';
+import NotificationHandler from '../components/Notification';
 
 // NotificationModal: renders notification history inside a modal-like full-screen overlay
 const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ visible, onClose }) => {
@@ -138,6 +139,7 @@ export default function HomeScreen() {
 
 	return (
 		<NotificationProvider>
+			<NotificationHandler />
 			<View style={styles.container}>
 				<Drawer isOpen={drawerOpen} onClose={() => setDrawerOpen(false)} />
 				

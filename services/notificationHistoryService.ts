@@ -20,11 +20,48 @@ const first = (...vals: any[]) => {
   return undefined;
 };
 
+// list of keys that are purely metadata and should be ignored when deciding title/body
+const METADATA_KEY_PATTERNS = [/^google(\.|_)?/i, /^gcm(\.|_)?/i];
+const METADATA_KEYS = new Set(['collapse_key', 'from', 'google.message_id', 'google.sent_time', 'google.ttl', 'google.product_id']);
+
+// helper: detect likely package name strings (e.g. com.rayff60.hotel_pos)
+const isLikelyPackageName = (s: any) => {
+  if (typeof s !== 'string') return false;
+  const trimmed = s.trim();
+  // simple heuristic: contains at least one dot and no space, and limited length
+  return /\./.test(trimmed) && !/\s/.test(trimmed) && trimmed.length < 120;
+};
+
+// Clean object by removing metadata-only keys (shallow)
+const cleanDataObject = (obj: any): any => {
+  if (!obj || typeof obj !== 'object') return obj;
+  const out: any = Array.isArray(obj) ? [] : {};
+  for (const k of Object.keys(obj)) {
+    // skip metadata keys
+    if (METADATA_KEYS.has(k)) continue;
+    if (METADATA_KEY_PATTERNS.some(p => p.test(k))) continue;
+    const v = obj[k];
+    // if value looks like package name, skip
+    if (typeof v === 'string' && isLikelyPackageName(v)) continue;
+    // recursively clean nested objects
+    if (typeof v === 'object' && v !== null) {
+      const cleaned = cleanDataObject(v);
+      // only include if cleaned has keys or non-empty values
+      if (typeof cleaned === 'object' && Object.keys(cleaned).length === 0) continue;
+      out[k] = cleaned;
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+};
+
 // Normalize any incoming payload/record so title/body/data are extracted from common shapes
 export const normalizePayload = (raw: any) => {
   if (!raw) return { title: undefined, body: undefined, data: undefined };
 
   const maybeData = tryParse(raw.data) ?? raw.data ?? tryParse(raw?.message?.data) ?? raw?.message?.data;
+  const cleanedMaybeData = cleanDataObject(maybeData);
   const maybeMessage = raw.message ?? tryParse(raw.message);
   const maybeNotification =
     raw.notification ??
@@ -39,23 +76,26 @@ export const normalizePayload = (raw: any) => {
       // try parse string as JSON and search inside
       const parsed = tryParse(obj);
       if (parsed) return findFieldInObject(parsed, nameTokens);
-      // otherwise no structured data here
+      // skip strings that look like package names or are metadata-like
+      if (isLikelyPackageName(obj)) return undefined;
+      // no structured data here
       return undefined;
     }
     if (typeof obj !== 'object') return undefined;
 
     // first pass: keys that contain the tokens
     for (const k of Object.keys(obj)) {
+      // skip metadata keys
+      if (METADATA_KEYS.has(k) || METADATA_KEY_PATTERNS.some(p => p.test(k))) continue;
       const val = obj[k];
       const lk = String(k).toLowerCase();
       for (const token of nameTokens) {
         if (lk.includes(token)) {
-          if (typeof val === 'string' && val.trim()) return val;
+          if (typeof val === 'string' && val.trim() && !isLikelyPackageName(val)) return val;
           if (typeof val === 'object') {
             const nested = findFieldInObject(val, nameTokens);
             if (nested) return nested;
           } else if (typeof val === 'number' || typeof val === 'boolean') {
-            // convert non-string primitive to string fallback
             return String(val);
           }
         }
@@ -64,6 +104,7 @@ export const normalizePayload = (raw: any) => {
 
     // second pass: search nested objects / stringified JSON
     for (const k of Object.keys(obj)) {
+      if (METADATA_KEYS.has(k) || METADATA_KEY_PATTERNS.some(p => p.test(k))) continue;
       const val = obj[k];
       if (typeof val === 'object') {
         const nested = findFieldInObject(val, nameTokens);
@@ -80,18 +121,19 @@ export const normalizePayload = (raw: any) => {
     return undefined;
   };
 
-  // helper: pick first non-empty string anywhere in object as last-resort fallback
+  // helper: pick first non-empty string anywhere in object as last-resort fallback (but skip package names & metadata)
   const findAnyString = (obj: any): string | undefined => {
     if (!obj) return undefined;
     if (typeof obj === 'string') {
       const s = obj.trim();
-      if (s) return s;
+      if (s && !isLikelyPackageName(s)) return s;
       return undefined;
     }
     if (typeof obj !== 'object') return undefined;
     for (const k of Object.keys(obj)) {
+      if (METADATA_KEYS.has(k) || METADATA_KEY_PATTERNS.some(p => p.test(k))) continue;
       const val = obj[k];
-      if (typeof val === 'string' && val.trim()) return val;
+      if (typeof val === 'string' && val.trim() && !isLikelyPackageName(val)) return val;
       if (typeof val === 'object') {
         const nested = findAnyString(val);
         if (nested) return nested;
@@ -111,10 +153,10 @@ export const normalizePayload = (raw: any) => {
     maybeNotification?.title,
     raw.notification?.title,
     maybeMessage?.notification?.title,
-    maybeData?.title,
-    maybeData?.notification?.title,
-    // search nested/stringified payload keys
-    findFieldInObject(maybeData, titleTokens),
+    cleanedMaybeData?.title,
+    cleanedMaybeData?.notification?.title,
+    // search nested/stringified payload keys but using cleaned data
+    findFieldInObject(cleanedMaybeData, titleTokens),
     findFieldInObject(raw, titleTokens)
   );
 
@@ -123,21 +165,19 @@ export const normalizePayload = (raw: any) => {
     maybeNotification?.body,
     raw.notification?.body,
     maybeMessage?.notification?.body,
-    maybeData?.body,
-    // search nested/stringified payload keys
-    findFieldInObject(maybeData, bodyTokens),
+    cleanedMaybeData?.body,
+    findFieldInObject(cleanedMaybeData, bodyTokens),
     findFieldInObject(raw, bodyTokens)
   );
 
-  // last-resort: any non-empty string in data or raw
-  const fallbackTitle = titleCandidate ?? findAnyString(maybeData) ?? findAnyString(raw);
-  const fallbackBody = bodyCandidate ?? findAnyString(maybeData) ?? findAnyString(raw);
+  const fallbackTitle = titleCandidate ?? findAnyString(cleanedMaybeData) ?? findAnyString(raw);
+  const fallbackBody = bodyCandidate ?? findAnyString(cleanedMaybeData) ?? findAnyString(raw);
 
   const title = typeof titleCandidate === 'string' && titleCandidate.trim() ? titleCandidate : (typeof fallbackTitle === 'string' && fallbackTitle.trim() ? fallbackTitle : undefined);
   const body = typeof bodyCandidate === 'string' && bodyCandidate.trim() ? bodyCandidate : (typeof fallbackBody === 'string' && fallbackBody.trim() ? fallbackBody : undefined);
 
-  // choose a compact object for data if present
-  const data = typeof maybeData === 'object' ? maybeData : (maybeData ? { value: maybeData } : undefined);
+  // choose a compact object for data if present (cleaned)
+  const data = (typeof cleanedMaybeData === 'object' && Object.keys(cleanedMaybeData || {}).length > 0) ? cleanedMaybeData : undefined;
 
   return { title, body, data };
 };
@@ -166,11 +206,20 @@ export const notificationHistoryService = {
     // normalize payload so stored item always has title/body/data when available
     const normalized = normalizePayload(payload);
 
+    // decide whether data contains any meaningful keys (not just metadata)
+    const hasMeaningfulData = normalized.data && Object.keys(normalized.data).length > 0;
+    const hasTitleOrBody = (typeof normalized.title === 'string' && normalized.title.trim()) || (typeof normalized.body === 'string' && normalized.body.trim());
+
+    // if nothing meaningful to save (no title/body and no meaningful data), skip saving
+    if (!hasTitleOrBody && !hasMeaningfulData) {
+      return null;
+    }
+
     const item: NotificationHistory = {
       id: `${Date.now()}-${Math.floor(Math.random() * 10000)}`,
       title: normalized.title,
       body: normalized.body,
-      data: normalized.data ?? (payload?.data && typeof payload.data === 'object' ? payload.data : undefined),
+      data: normalized.data ?? (payload?.data && typeof payload.data === 'object' ? cleanDataObject(payload.data) : undefined),
       created_at,
       expires_at,
       is_read: false,
