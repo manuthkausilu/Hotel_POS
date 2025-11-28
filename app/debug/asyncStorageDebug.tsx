@@ -9,13 +9,67 @@ export default function AsyncStorageDebugScreen() {
   const [list, setList] = useState<NotificationHistory[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // helper: safe JSON parse
+  const tryParse = (v: any) => {
+    try {
+      return typeof v === 'string' ? JSON.parse(v) : v;
+    } catch {
+      return null;
+    }
+  };
+
+  // helper: pick first non-null/undefined from list
+  const first = (...vals: any[]) => {
+    for (const v of vals) if (v !== null && v !== undefined) return v;
+    return undefined;
+  };
+
+  // normalize a stored item into predictable title/body
+  const normalizeItem = (item: any) => {
+    const maybeData = tryParse(item.data);
+    const maybeMessage = item.message ?? tryParse(item.message);
+    const maybeNotification = item.notification ?? maybeMessage?.notification ?? tryParse(item.notification);
+
+    const title = first(
+      item.title,
+      maybeNotification?.title,
+      item.notification?.title,
+      maybeMessage?.notification?.title,
+      maybeData?.title,
+      maybeData?.notification?.title
+    ) ?? 'No title';
+
+    const body = first(
+      item.body,
+      maybeNotification?.body,
+      item.notification?.body,
+      maybeMessage?.notification?.body,
+      maybeData?.body
+    ) ?? '';
+
+    return { ...item, title, body };
+  };
+
   const refresh = async () => {
     setLoading(true);
     try {
       const r = await AsyncStorage.getItem('@notification_history');
-      setRaw(r);
+
+      // try to pretty-print raw storage for easier inspection
+      if (r) {
+        try {
+          setRaw(JSON.stringify(JSON.parse(r), null, 2));
+        } catch {
+          setRaw(r);
+        }
+      } else {
+        setRaw(null);
+      }
+
       const parsed = await notificationHistoryService.getNotifications();
-      setList(parsed);
+      // normalize multiple possible shapes so UI shows actual values if present
+      const normalized = (parsed as any[]).map(normalizeItem);
+      setList(normalized as NotificationHistory[]);
     } catch (err) {
       Alert.alert('Error', 'Failed to read AsyncStorage.');
     } finally {
@@ -44,6 +98,14 @@ export default function AsyncStorageDebugScreen() {
 
   const logRaw = () => {
     console.log('AsyncStorage @notification_history raw:', raw);
+    // also log parsed JSON if possible
+    try {
+      if (raw) {
+        console.log('Parsed JSON:', JSON.parse(raw));
+      }
+    } catch {
+      // not JSON — ignore
+    }
     Alert.alert('Logged', 'Raw value logged to console.');
   };
 

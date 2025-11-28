@@ -123,6 +123,29 @@ export const registerFcmTokenAndStore = async (appType = 'pos_system'): Promise<
   }
 };
 
+// small helper to try parse JSON-ish values
+const tryParse = (v: any) => {
+  try {
+    return typeof v === 'string' ? JSON.parse(v) : v;
+  } catch {
+    return null;
+  }
+};
+
+// Extract sensible { title, body, data } from expo-notifications / FCM objects
+const extractPayloadFromContent = (content: any) => {
+  if (!content) return { title: undefined, body: undefined, data: undefined };
+
+  const title = content.title ?? content?.notification?.title ?? undefined;
+  const body = content.body ?? content?.notification?.body ?? undefined;
+
+  // content.data may be an object or a JSON string; try to parse
+  const rawData = content.data ?? content?.data ?? undefined;
+  const parsedData = tryParse(rawData) ?? rawData;
+
+  return { title, body, data: parsedData };
+};
+
 let _listenersRegistered = false;
 
 // Notification saved callbacks (moved to module scope)
@@ -188,9 +211,9 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 		const receivedSub = Notifications?.addNotificationReceivedListener?.(async (notif: any) => {
 			try {
 				const content = notif?.request?.content ?? {};
-				const title = content.title ?? undefined;
-				const body = content.body ?? undefined;
-				const data = content.data ?? undefined;
+				const { title, body, data } = extractPayloadFromContent(content);
+
+				// addNotification will further normalize and persist the item
 				const item = await notificationHistoryService.addNotification({ title, body, data });
 
 				// emit to subscribers (NotificationProvider will update UI)
@@ -202,13 +225,8 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 						title: item.title ?? undefined,
 						body: item.body ?? undefined,
 						data: item.data ?? undefined,
-						android: {
-							channelId: 'default',
-							priority: 'max',
-						},
-						ios: {
-							sound: 'default',
-						},
+						android: { channelId: 'default', priority: 'max' },
+						ios: { sound: 'default' },
 					});
 				} catch {
 					// ignore present errors
@@ -224,15 +242,14 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 		const responseSub = Notifications?.addNotificationResponseReceivedListener?.(async (response: any) => {
 			try {
 				const content = response?.notification?.request?.content ?? {};
-				const title = content.title ?? undefined;
-				const body = content.body ?? undefined;
-				const data = content.data ?? undefined;
+				const { title, body, data } = extractPayloadFromContent(content);
+
 				const item = await notificationHistoryService.addNotification({ title, body, data });
 
 				// emit to subscribers (NotificationProvider will update UI)
 				emitSaved(item);
 
-				// when user taps, optionally present (usually not needed) — kept for parity
+				// optionally present as well (kept for parity)
 				try {
 					await Notifications.presentNotificationAsync({
 						title: item.title ?? undefined,

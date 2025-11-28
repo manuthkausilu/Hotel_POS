@@ -8,11 +8,54 @@ export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState<NotificationHistory[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
+  // helper: safe JSON parse
+  const tryParse = (v: any) => {
+    try {
+      return typeof v === 'string' ? JSON.parse(v) : v;
+    } catch {
+      return null;
+    }
+  };
+
+  // helper: pick first non-null/undefined from list
+  const first = (...vals: any[]) => {
+    for (const v of vals) if (v !== null && v !== undefined) return v;
+    return undefined;
+  };
+
+  // normalize a stored item into predictable title/body (keeps other fields)
+  const normalizeItem = (item: any) => {
+    const maybeData = tryParse(item?.data);
+    const maybeMessage = item?.message ?? tryParse(item?.message);
+    const maybeNotification = item?.notification ?? maybeMessage?.notification ?? tryParse(item?.notification);
+
+    const title = first(
+      item?.title,
+      maybeNotification?.title,
+      item?.notification?.title,
+      maybeMessage?.notification?.title,
+      maybeData?.title,
+      maybeData?.notification?.title
+    ) ?? 'No title';
+
+    const body = first(
+      item?.body,
+      maybeNotification?.body,
+      item?.notification?.body,
+      maybeMessage?.notification?.body,
+      maybeData?.body
+    ) ?? '';
+
+    return { ...item, title, body };
+  };
+
   const refresh = async () => {
     try {
       setRefreshing(true);
       const list = await notificationHistoryService.getNotifications();
-      setNotifications(list);
+      // normalize each item so UI shows values if present anywhere in the payload
+      const normalized = (list as any[]).map(normalizeItem);
+      setNotifications(normalized as NotificationHistory[]);
     } catch {
       // ignore
     } finally {
@@ -24,7 +67,8 @@ export default function NotificationsScreen() {
     refresh();
 
     // subscribe to saved notification events so this screen updates live
-    const handleSaved = (item: NotificationHistory) => {
+    const handleSaved = (rawItem: NotificationHistory) => {
+      const item = normalizeItem(rawItem);
       setNotifications(prev => {
         if (prev.some(p => p.id === item.id)) return prev;
         return [item, ...prev];
