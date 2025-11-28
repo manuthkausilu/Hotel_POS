@@ -19,8 +19,23 @@ const NotificationContext = createContext<NotificationContextValue | undefined>(
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<NotificationHistory[]>([]);
 
-  // derived count of unread notifications (keeps in sync with notifications state)
-  const unreadCount = notifications.reduce((acc, n) => acc + (n.is_read ? 0 : 1), 0);
+  // derived count of unread notifications using a logical key per notification to avoid double-counting
+  const unreadCount = React.useMemo(() => {
+    const map = new Map<string, boolean>(); // key -> hasUnread
+    for (const n of notifications) {
+      if (!n) continue;
+      // prefer stable message id stored in data, else fallback to title+body
+      const msgId = n.data && (n.data['_message_id'] ?? n.data['google.message_id'] ?? n.data['messageId'] ?? n.data['message_id']);
+      const key = msgId ? String(msgId) : `${String(n.title ?? '').trim()}||${String(n.body ?? '').trim()}`;
+      // if already marked as unread for this key, leave as true
+      const prev = map.get(key);
+      if (prev === true) continue;
+      map.set(key, !n.is_read);
+    }
+    let count = 0;
+    for (const v of map.values()) if (v) count++;
+    return count;
+  }, [notifications]);
 
   const clearAll = async () => {
     try {
@@ -33,12 +48,29 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   const refresh = async () => {
     const list = await notificationHistoryService.getNotifications();
-    // ensure each item is normalized for title/body/data before exposing to consumers
-    const normalized = list.map(i => {
+    console.debug('[NotificationProvider] refresh loaded', list.length, 'items');
+    // Normalize and dedupe by id (keep newest created_at if duplicates present)
+    const temp = list.map(i => {
       const n = normalizePayload(i);
       return { ...i, title: i.title ?? n.title ?? 'No title', body: i.body ?? n.body ?? '', data: i.data ?? n.data };
     });
+    const map = new Map<string, NotificationHistory>();
+    for (const it of temp) {
+      if (!it || !it.id) continue;
+      const existing = map.get(it.id);
+      if (!existing) map.set(it.id, it);
+      else {
+        // keep the most recent created_at
+        try {
+          if (new Date(it.created_at).getTime() > new Date(existing.created_at).getTime()) map.set(it.id, it);
+        } catch {
+          map.set(it.id, it);
+        }
+      }
+    }
+    const normalized = Array.from(map.values()).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     setNotifications(normalized);
+    return;
   };
 
   const addNotification = async (payload: { title?: string; body?: string; data?: Record<string, any>; id?: string; is_read?: boolean }) => {
@@ -48,7 +80,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       if (!item) return null;
       const n = normalizePayload(item);
       setNotifications(prev => {
-        if (prev.some(p => p.id === item.id)) return prev;
+        // insert new item but guard duplicates by id
+        if (item.id && prev.some(p => p.id === item.id)) return prev;
         return [
           {
             ...item,

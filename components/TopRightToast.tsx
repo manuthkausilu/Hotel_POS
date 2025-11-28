@@ -1,16 +1,18 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { JSX, useEffect, useRef, useState } from 'react';
 import { Animated, Text, TouchableOpacity, StyleSheet, View } from 'react-native';
 import { onNotificationSaved } from '../services/notificationService';
-import { JSX } from 'react/jsx-runtime';
 
 type ToastItem = { title?: string; body?: string; id?: string } | null;
 
 export default function TopRightToast(): JSX.Element | null {
   const [toast, setToast] = useState<ToastItem>(null);
   const [focused, setFocused] = useState(false);
+
   const opacity = useRef(new Animated.Value(0)).current;
   const translateX = useRef(new Animated.Value(40)).current;
   const scale = useRef(new Animated.Value(0.97)).current;
+  const leftScale = useRef(new Animated.Value(1)).current; // for accent pulse
+
   const hideTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -26,14 +28,18 @@ export default function TopRightToast(): JSX.Element | null {
         hideTimer.current = null;
       }
       setToast({ title, body, id });
-      // animate in
-      // animate opacity, translate and a small focus-scale pulse
+
+      // animate in: include leftAccent pulse
       Animated.parallel([
         Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }),
         Animated.timing(translateX, { toValue: 0, duration: 220, useNativeDriver: true }),
         Animated.sequence([
           Animated.timing(scale, { toValue: 1.02, duration: 160, useNativeDriver: true }),
           Animated.timing(scale, { toValue: 1.0, duration: 120, useNativeDriver: true }),
+        ]),
+        Animated.sequence([
+          Animated.timing(leftScale, { toValue: 1.12, duration: 180, useNativeDriver: true }),
+          Animated.timing(leftScale, { toValue: 1.0, duration: 120, useNativeDriver: true }),
         ]),
       ]).start();
 
@@ -59,7 +65,7 @@ export default function TopRightToast(): JSX.Element | null {
         hideTimer.current = null;
       }
     };
-  }, [opacity, translateX]);
+  }, [opacity, translateX, scale, leftScale]);
 
   const hide = () => {
     if (hideTimer.current) {
@@ -70,6 +76,7 @@ export default function TopRightToast(): JSX.Element | null {
       Animated.timing(opacity, { toValue: 0, duration: 180, useNativeDriver: true }),
       Animated.timing(translateX, { toValue: 40, duration: 180, useNativeDriver: true }),
       Animated.timing(scale, { toValue: 0.97, duration: 180, useNativeDriver: true }),
+      Animated.timing(leftScale, { toValue: 1, duration: 160, useNativeDriver: true }),
     ]).start(() => {
       setToast(null);
       setFocused(false);
@@ -90,6 +97,16 @@ export default function TopRightToast(): JSX.Element | null {
           },
         ]}
       >
+        {/* Animated left accent bar */}
+        <Animated.View
+          style={[
+            styles.leftAccent,
+            {
+              transform: [{ scaleY: leftScale }],
+              backgroundColor: focused ? '#FFEEF0' : '#FF6B6B',
+            },
+          ]}
+        />
         <View style={styles.textWrap}>
           <Text numberOfLines={1} style={styles.title}>{toast.title}</Text>
           {toast.body ? <Text numberOfLines={2} style={styles.body}>{toast.body}</Text> : null}
@@ -113,29 +130,44 @@ const styles = StyleSheet.create({
   },
   toast: {
     minWidth: 220,
-    maxWidth: 320,
+    maxWidth: 360,
     backgroundColor: '#FFFFFF',            // white card
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    borderLeftWidth: 6,
-    borderLeftColor: '#FF6B6B',            // app accent
+    // leave extra left padding to accommodate accent
+    paddingLeft: 16,
+    // subtle light-red outer border for modern look
+    borderWidth: 1,
+    borderColor: '#FFECEC',
     shadowColor: '#FF6B6B',                // subtle red shadow tint
     shadowOpacity: 0.12,
     shadowOffset: { width: 0, height: 6 },
     shadowRadius: 10,
     elevation: 8,
   },
+  // left accent (absolute inside toast)
+  leftAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 12,             // thicker accent
+    borderTopLeftRadius: 12,
+    borderBottomLeftRadius: 12,
+  },
   // focused variant (applies briefly when toast shows)
   toastFocused: {
     backgroundColor: '#FFF5F5', // light red tint
-    shadowOpacity: 0.22,
-    shadowRadius: 14,
-    borderLeftColor: '#FF6B6B',
+    shadowOpacity: 0.26,
+    shadowRadius: 18,
+    // stronger red border when focused
+    borderColor: '#FF6B6B',
+    borderWidth: 1.5,
   },
-  textWrap: { flex: 1, paddingRight: 8 },
+  textWrap: { flex: 1, paddingRight: 8, marginLeft: 6 },
   title: { color: '#111827', fontWeight: '700', fontSize: 14, marginBottom: 2 }, // dark title
   body: { color: '#6b7280', fontSize: 12 },                                      // muted body
   closeBtn: { padding: 6 },

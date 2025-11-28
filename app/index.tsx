@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, Alert, ScrollView } from 'react-native';
+import { Pressable, StyleSheet, Text, View, Alert, ScrollView, ActivityIndicator } from 'react-native';
 import Drawer from '../components/Navigation';
 import { useAuth } from '../context/AuthContext';
 import OrdersScreen from './(tabs)/orders';
@@ -15,10 +15,28 @@ const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = (
 	// lightweight import of hooks from the notification context
 	const { notifications, refresh, deleteNotification, markAsRead, clearAll } = useNotifications();
 	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const [loading, setLoading] = useState(false);
 
 	useEffect(() => {
-		if (visible) refresh();
-		if (!visible) setSelectedId(null);
+		let mounted = true;
+		const doRefresh = async () => {
+			if (!visible) {
+				if (mounted) setSelectedId(null);
+				return;
+			}
+			console.debug('[NotificationModal] visible=true -> refresh start');
+			setLoading(true);
+			try {
+				await refresh();
+			} catch (e) {
+				// ignore
+			} finally {
+				if (mounted) setLoading(false);
+			}
+			console.debug('[NotificationModal] refresh done, notifications:', notifications.length);
+		};
+		doRefresh();
+		return () => { mounted = false; };
 	}, [visible]);
 
 	return (
@@ -43,13 +61,24 @@ const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = (
 						</Pressable>
 					</View>
 
-					{notifications.length === 0 ? (
-						<View style={styles.empty}>
+					{loading ? (
+						<View style={[styles.emptyFull, { paddingVertical: 32 }]}>
+							<ActivityIndicator size="small" color="#FF6B6B" />
+						</View>
+					) : notifications.length === 0 ? (
+						// ensure empty view fills modal area so message is visible
+						<View style={styles.emptyFull}>
 							<Text style={styles.emptyText}>No notifications</Text>
 						</View>
 					) : (
-						/* body: fill card and remove extra bottom padding so list doesn't leave blank space */
-						<ScrollView style={styles.modalBody} contentContainerStyle={{ paddingVertical: 6 }}>
+						/* body: make ScrollView scrollable inside modal (nestedScrollEnabled for Android), keep content tappable */
+						<ScrollView
+							style={styles.modalBody}
+							contentContainerStyle={{ paddingVertical: 6 }}
+							nestedScrollEnabled={true}
+							showsVerticalScrollIndicator={true}
+							keyboardShouldPersistTaps="handled"
+						>
 							{notifications.map((item) => (
 								<Pressable
 									key={item.id}
@@ -65,8 +94,12 @@ const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = (
 									</View>
 									<View style={styles.actions}>
 										{selectedId === item.id && (
-											<Pressable onPress={async () => { await deleteNotification(item.id); setSelectedId(null); }} style={[styles.actionButton, { backgroundColor: '#FF6B6B' }]}>
-												<Text style={[styles.actionText, { color: 'white' }]}>Delete</Text>
+											<Pressable
+												onPress={async () => { await deleteNotification(item.id); setSelectedId(null); }}
+												style={[styles.actionButton, { backgroundColor: '#FF6B6B' }]}
+											>
+												{/* use trash icon instead of text */}
+												<Ionicons name="trash" size={16} color="white" />
 											</Pressable>
 										)}
 									</View>
@@ -358,6 +391,7 @@ const styles = StyleSheet.create({
 	modalCard: {
 		width: '92%',
 		maxHeight: '80%',
+		height: '68%',            // ensure a stable card height so inner flex children can fill it
 		backgroundColor: '#fff',
 		borderRadius: 16,
 		overflow: 'hidden', // ensure child ScrollView fits exactly
@@ -373,10 +407,12 @@ const styles = StyleSheet.create({
  	},
  	modalTitle: { fontSize: 18, fontWeight: '700', color: '#111827' },
  	modalClose: { padding: 6 },
- 	modalBody: { maxHeight: '68%', flex: 1 }, // use flex so ScrollView fills remaining card height
+	modalBody: { flex: 1 }, // use flex so ScrollView fills remaining card height
  	// reuse notification list styles (kept brief here)
  	empty: { padding: 20, alignItems: 'center' },
- 	emptyText: { color: '#9ca3af' },
+ 	// full-height empty container used inside modal to vertically center message
+ 	emptyFull: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 },
+ 	emptyText: { color: '#6b7280', fontSize: 15, fontWeight: '600' },
  	item: {
  		flexDirection: 'row',
  		padding: 12,

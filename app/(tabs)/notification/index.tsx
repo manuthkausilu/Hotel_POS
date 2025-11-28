@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, Pressable, StyleSheet, RefreshControl, Alert } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { normalizePayload, notificationHistoryService } from '../../../services/notificationHistoryService';
 import type { NotificationHistory } from '../../../types/Notification';
 import { onNotificationSaved } from '../../../services/notificationService';
@@ -103,9 +104,9 @@ export default function NotificationsScreen() {
         {selectedId === item.id && (
           <Pressable
             onPress={() => deleteNotification(item.id)}
-            style={[styles.actionButton, { backgroundColor: '#FF6B6B' }]}
+            style={[styles.actionButton, { backgroundColor: '#FF6B6B', paddingHorizontal: 10 }]}
           >
-            <Text style={[styles.actionText, { color: 'white' }]}>Delete</Text>
+            <Ionicons name="trash" size={16} color="white" />
           </Pressable>
         )}
       </View>
@@ -128,7 +129,10 @@ export default function NotificationsScreen() {
           data={notifications}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
-          contentContainerStyle={{ padding: 12 }}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ padding: 12, flexGrow: 1 }}
+          nestedScrollEnabled={true}
+          showsVerticalScrollIndicator={true}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
         />
       )}
@@ -139,7 +143,7 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  emptyText: { color: '#9ca3af' },
+  emptyText: { color: '#6b7280', fontSize: 16, fontWeight: '600' },
   item: {
     flexDirection: 'row',
     padding: 12,
