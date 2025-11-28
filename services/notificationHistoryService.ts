@@ -229,35 +229,43 @@ export const notificationHistoryService = {
     // normalize payload so stored item always has title/body/data when available
     const normalized = normalizePayload(payload);
 
-    // dedupe: try to get a stable message id from the incoming payload
+    // --- NEW: comprehensive duplicate detection against existing AsyncStorage entries ---
     const incomingMessageId = getPayloadMessageId(payload) ?? getPayloadMessageId(normalized?.data);
+    const normTitle = (normalized?.title ?? '').toString().trim();
+    const normBody = (normalized?.body ?? '').toString().trim();
+    const normDataStr = normalized?.data ? JSON.stringify(normalized.data) : '';
+
+    // 1) If incoming has a stable message id and any stored item already has it => duplicate
     if (incomingMessageId) {
-      // if an existing item already has this message id saved, skip saving
-      const already = list.find(i => {
+      const foundById = list.some(i => {
         const idInData = i?.data && (i.data['_message_id'] ?? i.data['google.message_id'] ?? i.data['messageId'] ?? i.data['message_id']);
         return idInData && String(idInData) === incomingMessageId;
       });
-      if (already) return null;
-    } else {
-      // fallback dedupe: avoid duplicate saves with identical title+body within short window (10s)
-      const title = normalized?.title ?? payload?.title;
-      const body = normalized?.body ?? payload?.body;
-      if (title || body) {
-        const now = Date.now();
-        const duplicate = list.find(i => {
-          if ((i.title ?? '') === (title ?? '') && (i.body ?? '') === (body ?? '')) {
-            try {
-              const t = new Date(i.created_at).getTime();
-              return Math.abs(now - t) < 10_000; // 10 seconds
-            } catch {
-              return false;
-            }
-          }
-          return false;
-        });
-        if (duplicate) return null;
-      }
+      if (foundById) return null;
     }
+
+    // 2) Exact title+body match => duplicate (covers tapped notifications that arrive again)
+    if (normTitle || normBody) {
+      const foundByTitleBody = list.some(i => {
+        const t = (i.title ?? '').toString().trim();
+        const b = (i.body ?? '').toString().trim();
+        return t === normTitle && b === normBody;
+      });
+      if (foundByTitleBody) return null;
+    }
+
+    // 3) Data deep equality match => duplicate
+    if (normDataStr) {
+      const foundByData = list.some(i => {
+        try {
+          return i.data && JSON.stringify(i.data) === normDataStr;
+        } catch {
+          return false;
+        }
+      });
+      if (foundByData) return null;
+    }
+    // --- end duplicate detection ---
 
     // decide whether data contains any meaningful keys (not just metadata)
     const hasMeaningfulData = normalized.data && Object.keys(normalized.data).length > 0;

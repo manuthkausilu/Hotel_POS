@@ -132,6 +132,46 @@ const tryParse = (v: any) => {
   }
 };
 
+// helper: extract candidate stable message id from data (similar to notificationHistoryService logic)
+const extractMessageIdFromData = (data: any): string | undefined => {
+  if (!data) return undefined;
+  const candidates = [
+    data['_message_id'],
+    data['google.message_id'],
+    data?.google?.message_id,
+    data.messageId,
+    data.message_id,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return c.trim();
+    if (typeof c === 'number') return String(c);
+  }
+  return undefined;
+};
+
+// helper: try to find an existing saved notification matching incoming payload
+const findExistingSavedNotification = async (title?: string, body?: string, data?: any) => {
+  try {
+    const list = await notificationHistoryService.getNotifications();
+    const incomingMessageId = extractMessageIdFromData(data);
+    if (incomingMessageId) {
+      const byId = list.find(i => {
+        const idInData = i?.data && (i.data['_message_id'] ?? i.data['google.message_id'] ?? i.data['messageId'] ?? i.data['message_id']);
+        return idInData && String(idInData) === incomingMessageId;
+      });
+      if (byId) return byId;
+    }
+    // fallback: find by exact title+body (most likely same notification)
+    if (title || body) {
+      const found = list.find(i => (i.title ?? '') === (title ?? '') && (i.body ?? '') === (body ?? ''));
+      if (found) return found;
+    }
+  } catch {
+    // ignore lookup errors
+  }
+  return undefined;
+};
+
 // Extract sensible { title, body, data } from expo-notifications / FCM objects
 const extractPayloadFromContent = (content: any) => {
   if (!content) return { title: undefined, body: undefined, data: undefined };
@@ -256,27 +296,26 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 				const content = response?.notification?.request?.content ?? {};
 				const { title, body, data } = extractPayloadFromContent(content);
 
+				// If already saved (received earlier), mark as read / emit instead of saving duplicate
+				const existing = await findExistingSavedNotification(title, body, data);
+				if (existing) {
+					try {
+						await notificationHistoryService.markAsRead(existing.id);
+					} catch {}
+					emitSaved(existing);
+					return;
+				}
+
+				// otherwise save as new
 				const item = await notificationHistoryService.addNotification({ title, body, data });
 				if (!item) return;
-
 				emitSaved(item);
-
-				try {
-				  await Notifications.presentNotificationAsync({
-					title: item.title ?? undefined,
-					body: item.body ?? undefined,
-					data: item.data ?? undefined,
-					android: { channelId: 'default', priority: 'max' },
-					ios: { sound: 'default' },
-				  });
-				} catch {
-				  // ignore
-				}
+				// no need to present another notification on tap
 			} catch (err) {
 				Alert.alert('Notification not saved', 'Failed to save notification response.');
 			}
 		});
-
+		
 		// --- NEW: try to register react-native-firebase messaging handlers (FCM) ---
 		let fcmOnMessageUnsub: (() => void) | null = null;
 		let fcmOnNotificationOpenedUnsub: (() => void) | null = null;
@@ -322,7 +361,7 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 					});
 				}
 
-				// background handler
+				// background handler (runs when JS process handles background messages)
 				if (typeof messaging.setBackgroundMessageHandler === 'function') {
 					try {
 						messaging.setBackgroundMessageHandler(async (remoteMessage: any) => {
@@ -364,34 +403,51 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 							const title = content?.title ?? remoteMessage?.data?.title;
 							const body = content?.body ?? remoteMessage?.data?.body;
 							const data = remoteMessage?.data ?? {};
+
+							// try find existing saved item first
+							const existing = await findExistingSavedNotification(title, body, data);
+							if (existing) {
+								try { await notificationHistoryService.markAsRead(existing.id); } catch {}
+								emitSaved(existing);
+								return;
+							}
+
 							const item = await notificationHistoryService.addNotification({ title, body, data });
+							if (!item) return;
 							emitSaved(item);
 						} catch {
 							// ignore
 						}
 					});
 				}
-
-				// app opened from quit state via notification
-				if (typeof messaging.getInitialNotification === 'function') {
-					try {
+ 
+ 				// app opened from quit state via notification
+ 				if (typeof messaging.getInitialNotification === 'function') {
+ 					try {
 						const initial = await messaging.getInitialNotification();
 						if (initial) {
 							const content = initial?.notification ?? {};
 							const title = content?.title ?? initial?.data?.title;
 							const body = content?.body ?? initial?.data?.body;
 							const data = initial?.data ?? {};
-							await notificationHistoryService.addNotification({ title, body, data });
+
+							// if already saved, mark as read and skip adding duplicate
+							const existing = await findExistingSavedNotification(title, body, data);
+							if (existing) {
+								try { await notificationHistoryService.markAsRead(existing.id); } catch {}
+							} else {
+								await notificationHistoryService.addNotification({ title, body, data });
+							}
 						}
-					} catch {
-						// ignore
-					}
-				}
-			}
+ 					} catch {
+ 						// ignore
+ 					}
+ 				}
+ 			}
 		} catch {
 			// react-native-firebase/messaging not available - ignore
 		}
-
+		
 		_listenersRegistered = true;
 		return () => {
 			if (receivedSub && typeof receivedSub.remove === 'function') receivedSub.remove();

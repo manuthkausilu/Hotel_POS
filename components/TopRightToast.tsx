@@ -90,20 +90,23 @@ const styles = StyleSheet.create({
   toast: {
     minWidth: 220,
     maxWidth: 320,
-    backgroundColor: '#111827',
+    backgroundColor: '#FFFFFF',            // white card
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
+    borderLeftWidth: 6,
+    borderLeftColor: '#FF6B6B',            // app accent
+    shadowColor: '#FF6B6B',                // subtle red shadow tint
+    shadowOpacity: 0.12,
     shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 12,
+    shadowRadius: 10,
+    elevation: 8,
   },
   textWrap: { flex: 1, paddingRight: 8 },
-  title: { color: '#fff', fontWeight: '700', fontSize: 14, marginBottom: 2 },
-  body: { color: '#e5e7eb', fontSize: 12 },
+  title: { color: '#111827', fontWeight: '700', fontSize: 14, marginBottom: 2 }, // dark title
+  body: { color: '#6b7280', fontSize: 12 },                                      // muted body
   closeBtn: { padding: 6 },
-  closeText: { color: '#fff', fontSize: 16, lineHeight: 16 },
+  closeText: { color: '#FF6B6B', fontSize: 18, lineHeight: 18 },                 // red close
 });
