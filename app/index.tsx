@@ -48,7 +48,8 @@ const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = (
 							<Text style={styles.emptyText}>No notifications</Text>
 						</View>
 					) : (
-						<ScrollView style={styles.modalList} contentContainerStyle={{ paddingVertical: 6 }}>
+						/* body: fill card and remove extra bottom padding so list doesn't leave blank space */
+						<ScrollView style={styles.modalBody} contentContainerStyle={{ paddingVertical: 6 }}>
 							{notifications.map((item) => (
 								<Pressable
 									key={item.id}
@@ -61,7 +62,6 @@ const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = (
 									<View style={{ flex: 1 }}>
 										<Text style={styles.title}>{item.title ?? 'No title'}</Text>
 										<Text style={styles.body}>{item.body ?? ''}</Text>
-										<Text style={styles.meta}>Expires: {new Date(item.expires_at).toLocaleString()}</Text>
 									</View>
 									<View style={styles.actions}>
 										{selectedId === item.id && (
@@ -194,7 +194,7 @@ const styles = StyleSheet.create({
 		padding: 8,
 	},
 	topBarTitle: {
-		fontSize: 20,
+		fontSize: 25,
 		fontWeight: '700',
 		color: '#1F2937',
 	},
@@ -360,35 +360,38 @@ const styles = StyleSheet.create({
 		maxHeight: '80%',
 		backgroundColor: '#fff',
 		borderRadius: 16,
-		padding: 12,
+		overflow: 'hidden', // ensure child ScrollView fits exactly
+		// no extra padding here so the ScrollView can occupy full card area
 	},
-	modalHeader: {
-		flexDirection: 'row',
-		alignItems: 'center',
-		justifyContent: 'space-between',
-		marginBottom: 8,
-	},
-	modalTitle: { fontSize: 18, fontWeight: '700', color: '#111827' },
-	modalClose: { padding: 6 },
-	modalList: { maxHeight: '68%', marginTop: 8 },
-	// reuse notification list styles (kept brief here)
-	empty: { padding: 20, alignItems: 'center' },
-	emptyText: { color: '#9ca3af' },
-	item: {
-		flexDirection: 'row',
-		padding: 12,
-		marginVertical: 6,
-		borderRadius: 12,
-		borderWidth: 1,
-		borderColor: '#eee',
-		alignItems: 'center',
-	},
-	unread: { backgroundColor: '#FFF7F7' },
-	read: { backgroundColor: '#F7F7F7' },
-	title: { fontWeight: '700', marginBottom: 4 },
-	body: { color: '#6b7280' },
-	meta: { marginTop: 6, fontSize: 11, color: '#9ca3af' },
-	actions: { marginLeft: 12, alignItems: 'flex-end' },
-	actionButton: { padding: 8, marginVertical: 4, backgroundColor: '#F3F4F6', borderRadius: 8 },
-	actionText: { color: '#374151', fontWeight: '600' },
+ 	modalHeader: {
+ 		flexDirection: 'row',
+ 		alignItems: 'center',
+ 		justifyContent: 'space-between',
+ 		padding: 12,     // header handles its own padding now
+ 		borderBottomWidth: 1,
+ 		borderBottomColor: '#F3F4F6',
+ 	},
+ 	modalTitle: { fontSize: 18, fontWeight: '700', color: '#111827' },
+ 	modalClose: { padding: 6 },
+ 	modalBody: { maxHeight: '68%', flex: 1 }, // use flex so ScrollView fills remaining card height
+ 	// reuse notification list styles (kept brief here)
+ 	empty: { padding: 20, alignItems: 'center' },
+ 	emptyText: { color: '#9ca3af' },
+ 	item: {
+ 		flexDirection: 'row',
+ 		padding: 12,
+ 		marginVertical: 6,
+ 		borderRadius: 12,
+ 		borderWidth: 1,
+ 		borderColor: '#eee',
+ 		alignItems: 'center',
+ 	},
+ 	unread: { backgroundColor: '#FFF7F7' },
+ 	read: { backgroundColor: '#F7F7F7' },
+ 	title: { fontWeight: '700', marginBottom: 4 },
+ 	body: { color: '#6b7280' },
+ 	meta: { marginTop: 6, fontSize: 11, color: '#9ca3af' },
+ 	actions: { marginLeft: 12, alignItems: 'flex-end' },
+ 	actionButton: { padding: 8, marginVertical: 4, backgroundColor: '#F3F4F6', borderRadius: 8 },
+ 	actionText: { color: '#374151', fontWeight: '600' },
 });

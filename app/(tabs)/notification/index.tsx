@@ -98,9 +98,6 @@ export default function NotificationsScreen() {
       <View style={{ flex: 1 }}>
         <Text style={styles.title}>{item.title ?? 'No title'}</Text>
         <Text style={styles.body}>{item.body ?? ''}</Text>
-        <Text style={styles.meta}>
-          Expires: {new Date(item.expires_at).toLocaleString()}
-        </Text>
       </View>
       <View style={styles.actions}>
         {selectedId === item.id && (

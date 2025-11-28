@@ -103,9 +103,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         cleanupListeners = null;
       }
 
-      // subscribe to saved-notification events from service immediately
-      onNotificationSaved(handleSaved);
-
       await notificationHistoryService.cleanupExpiredNotifications();
       const list = await notificationHistoryService.getNotifications();
 
@@ -116,6 +113,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           return { ...i, title: i.title ?? n.title ?? 'No title', body: i.body ?? n.body ?? '', data: i.data ?? n.data };
         });
         setNotifications(normalized);
+
+        // subscribe to saved-notification events from service AFTER initial population
+        onNotificationSaved(handleSaved);
       }
     };
     init();
