@@ -2,13 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, Alert } from 'react-native';
+import { Pressable, StyleSheet, Text, View, Alert, ScrollView } from 'react-native';
 import Drawer from '../components/Navigation';
 import { useAuth } from '../context/AuthContext';
 import OrdersScreen from './(tabs)/orders';
 import { NotificationProvider, useNotifications } from '../context/NotificationContext';
 import { registerFcmTokenAndStore, initNotificationListeners } from '../services/notificationService';
-import NotificationHandler from '../components/Notification';
+import TopRightToast from '../components/TopRightToast';
 
 // NotificationModal: renders notification history inside a modal-like full-screen overlay
 const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ visible, onClose }) => {
@@ -48,7 +48,7 @@ const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = (
 							<Text style={styles.emptyText}>No notifications</Text>
 						</View>
 					) : (
-						<React.Fragment>
+						<ScrollView style={styles.modalList} contentContainerStyle={{ paddingVertical: 6 }}>
 							{notifications.map((item) => (
 								<Pressable
 									key={item.id}
@@ -72,7 +72,7 @@ const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = (
 									</View>
 								</Pressable>
 							))}
-						</React.Fragment>
+						</ScrollView>
 					)}
 				</View>
 			</View>
@@ -80,15 +80,17 @@ const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = (
 	);
 };
 
-// add this child component (inside this file) so it can consume the NotificationProvider below
 const NotificationBell: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
-	const { notifications } = useNotifications();
-	const unread = notifications.some(n => !n.is_read);
+	const { unreadCount } = useNotifications();
 
 	return (
 		<Pressable onPress={onOpen} style={styles.bellButton}>
 			<Ionicons name="notifications" size={28} color="#FF6B6B" />
-			{unread && <View style={styles.badge} />}
+			{unreadCount > 0 && (
+				<View style={styles.countBadge}>
+					<Text style={styles.countText}>{unreadCount > 99 ? '99+' : String(unreadCount)}</Text>
+				</View>
+			)}
 		</Pressable>
 	);
 };
@@ -139,7 +141,7 @@ export default function HomeScreen() {
 
 	return (
 		<NotificationProvider>
-			<NotificationHandler />
+			<TopRightToast />
 			<View style={styles.container}>
 				<Drawer isOpen={drawerOpen} onClose={() => setDrawerOpen(false)} />
 				
@@ -205,6 +207,7 @@ const styles = StyleSheet.create({
 		padding: 6,
 	},
 	badge: {
+		// kept for backward compatibility if used elsewhere
 		position: 'absolute',
 		top: 4,
 		right: 4,
@@ -212,6 +215,23 @@ const styles = StyleSheet.create({
 		height: 8,
 		borderRadius: 4,
 		backgroundColor: '#FF6B6B',
+	},
+	countBadge: {
+		position: 'absolute',
+		top: -6,
+		right: -6,
+		minWidth: 18,
+		height: 18,
+		paddingHorizontal: 5,
+		borderRadius: 9,
+		backgroundColor: '#FF6B6B',
+		alignItems: 'center',
+		justifyContent: 'center',
+	},
+	countText: {
+		color: 'white',
+		fontSize: 10,
+		fontWeight: '700',
 	},
 	backgroundCircle1: {
 		position: 'absolute',
@@ -350,6 +370,7 @@ const styles = StyleSheet.create({
 	},
 	modalTitle: { fontSize: 18, fontWeight: '700', color: '#111827' },
 	modalClose: { padding: 6 },
+	modalList: { maxHeight: '68%', marginTop: 8 },
 	// reuse notification list styles (kept brief here)
 	empty: { padding: 20, alignItems: 'center' },
 	emptyText: { color: '#9ca3af' },

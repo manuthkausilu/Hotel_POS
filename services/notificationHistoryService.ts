@@ -196,6 +196,29 @@ const persist = async (list: NotificationHistory[]) => {
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(list));
 };
 
+// NEW: try to extract a stable message id from common places in the payload
+const getPayloadMessageId = (payload: any): string | undefined => {
+  if (!payload) return undefined;
+  // common fields that carry a unique message id
+  const candidates = [
+    payload?.data?.['google.message_id'],
+    payload?.data?.google?.message_id,
+    payload?.data?.messageId,
+    payload?.data?.message_id,
+    payload?.messageId,
+    payload?.message?.messageId,
+    payload?.message?.message_id,
+    payload?.message_id,
+    payload?.google?.message_id,
+    payload?.google_message_id,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return c.trim();
+    if (typeof c === 'number') return String(c);
+  }
+  return undefined;
+};
+
 export const notificationHistoryService = {
   addNotification: async (payload: { title?: string; body?: string; data?: Record<string, any> } | any) => {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
@@ -206,6 +229,36 @@ export const notificationHistoryService = {
     // normalize payload so stored item always has title/body/data when available
     const normalized = normalizePayload(payload);
 
+    // dedupe: try to get a stable message id from the incoming payload
+    const incomingMessageId = getPayloadMessageId(payload) ?? getPayloadMessageId(normalized?.data);
+    if (incomingMessageId) {
+      // if an existing item already has this message id saved, skip saving
+      const already = list.find(i => {
+        const idInData = i?.data && (i.data['_message_id'] ?? i.data['google.message_id'] ?? i.data['messageId'] ?? i.data['message_id']);
+        return idInData && String(idInData) === incomingMessageId;
+      });
+      if (already) return null;
+    } else {
+      // fallback dedupe: avoid duplicate saves with identical title+body within short window (10s)
+      const title = normalized?.title ?? payload?.title;
+      const body = normalized?.body ?? payload?.body;
+      if (title || body) {
+        const now = Date.now();
+        const duplicate = list.find(i => {
+          if ((i.title ?? '') === (title ?? '') && (i.body ?? '') === (body ?? '')) {
+            try {
+              const t = new Date(i.created_at).getTime();
+              return Math.abs(now - t) < 10_000; // 10 seconds
+            } catch {
+              return false;
+            }
+          }
+          return false;
+        });
+        if (duplicate) return null;
+      }
+    }
+
     // decide whether data contains any meaningful keys (not just metadata)
     const hasMeaningfulData = normalized.data && Object.keys(normalized.data).length > 0;
     const hasTitleOrBody = (typeof normalized.title === 'string' && normalized.title.trim()) || (typeof normalized.body === 'string' && normalized.body.trim());
@@ -215,11 +268,22 @@ export const notificationHistoryService = {
       return null;
     }
 
+    // ensure message id is recorded in the saved data so future dedupe works
+    const savedData = (normalized.data ?? (payload?.data && typeof payload.data === 'object' ? cleanDataObject(payload.data) : undefined)) as any;
+    if (incomingMessageId) {
+      if (!savedData || typeof savedData !== 'object') {
+        // ensure object
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+        (savedData as any) = {};
+      }
+      (savedData as any)['_message_id'] = incomingMessageId;
+    }
+
     const item: NotificationHistory = {
       id: `${Date.now()}-${Math.floor(Math.random() * 10000)}`,
       title: normalized.title,
       body: normalized.body,
-      data: normalized.data ?? (payload?.data && typeof payload.data === 'object' ? cleanDataObject(payload.data) : undefined),
+      data: savedData ?? undefined,
       created_at,
       expires_at,
       is_read: false,

@@ -11,12 +11,16 @@ type NotificationContextValue = {
   deleteNotification: (id: string) => Promise<void>;
   markAsRead: (id: string) => Promise<void>;
   clearAll: () => Promise<void>;
+  unreadCount: number;
 };
 
 const NotificationContext = createContext<NotificationContextValue | undefined>(undefined);
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<NotificationHistory[]>([]);
+
+  // derived count of unread notifications (keeps in sync with notifications state)
+  const unreadCount = notifications.reduce((acc, n) => acc + (n.is_read ? 0 : 1), 0);
 
   const clearAll = async () => {
     try {
@@ -130,7 +134,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   }, []);
 
   return (
-    <NotificationContext.Provider value={{ notifications, refresh, addNotification, deleteNotification, markAsRead, clearAll }}>
+    <NotificationContext.Provider value={{ notifications, refresh, addNotification, deleteNotification, markAsRead, clearAll, unreadCount }}>
       {children}
     </NotificationContext.Provider>
   );
