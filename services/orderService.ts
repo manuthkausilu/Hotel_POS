@@ -19,6 +19,16 @@ export class OrderService {
       total: 0,
       status: 'pending',
       createdAt: new Date(),
+      orderType: '',
+      customer: {
+        id: '',
+        name: ''
+      },
+      room: {
+        id: '',
+        name: ''
+      },
+      stewardId: null
     };
     this.orders.set(orderId, order);
     return orderId;

@@ -8,6 +8,10 @@ export interface OrderItem {
 }
 
 export interface Order {
+  orderType: string;
+  customer: { id: string; name: string; };
+  room: { id: string; name: string; };
+  stewardId: string | null;
   id?: string; // Unique order ID (e.g., UUID or session-based)
   tableId?: string; // Optional, for associating with a table/session
   items: OrderItem[];
