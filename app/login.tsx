@@ -43,7 +43,7 @@ export default function LoginScreen() {
           <TextInput
             style={styles.input}
             placeholder="Enter your email"
-            placeholderTextColor="#A78BFA"
+            placeholderTextColor="#FF8A8A"  // lighter pink placeholder
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
@@ -56,7 +56,7 @@ export default function LoginScreen() {
           <TextInput
             style={styles.input}
             placeholder="Enter your password"
-            placeholderTextColor="#A78BFA"
+            placeholderTextColor="#FF8A8A"
             value={password}
             onChangeText={setPassword}
             secureTextEntry
@@ -65,7 +65,7 @@ export default function LoginScreen() {
         
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#8B5CF6" />
+            <ActivityIndicator size="large" color="#FF6B6B" /> {/* updated to accent color */}
           </View>
         ) : (
           <Pressable 
@@ -83,7 +83,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#A78BFA',
+    backgroundColor: '#FFFFFF', // use white background similar to Home Screen
     padding: 24,
     justifyContent: 'center',
     overflow: 'hidden',
@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
     width: 400,
     height: 400,
     borderRadius: 200,
-    backgroundColor: 'rgba(196, 181, 253, 0.4)',
+    backgroundColor: 'rgba(255,107,107,0.08)', // light pink accent
     top: -100,
     right: -100,
   },
@@ -102,7 +102,7 @@ const styles = StyleSheet.create({
     width: 300,
     height: 300,
     borderRadius: 150,
-    backgroundColor: 'rgba(221, 214, 254, 0.3)',
+    backgroundColor: 'rgba(255,107,107,0.06)',
     bottom: -50,
     left: -50,
   },
@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     padding: 40,
     width: '100%',
-    shadowColor: '#000',
+    shadowColor: '#FF6B6B', // keep shadow in accent color
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
     shadowRadius: 24,
@@ -122,14 +122,14 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   iconContainer: {
-    backgroundColor: '#C084FC',
+    backgroundColor: '#FF6B6B', // accent
     width: 100,
     height: 100,
     borderRadius: 50,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 20,
-    shadowColor: '#C084FC',
+    shadowColor: '#FF6B6B',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 2,
-    borderColor: '#F3E8FF',
+    borderColor: '#FFF1F1', // soft pink border to match theme
     padding: 18,
     borderRadius: 16,
     backgroundColor: '#FAFAFA',
@@ -172,10 +172,10 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
   },
   loginButton: {
-    backgroundColor: '#C084FC',
+    backgroundColor: '#FF6B6B', // accent color
     padding: 18,
     borderRadius: 16,
-    shadowColor: '#C084FC',
+    shadowColor: '#FF6B6B',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,

@@ -4,186 +4,186 @@ import { notificationHistoryService } from './notificationHistoryService';
 import { Platform, Alert } from 'react-native';
 
 export const destroyDeviceToken = async () => {
-  try {
-    const response = await apiClient.delete('/user/device-token');
-    return response.data;
-  } catch (error) {
-    throw error;
-  }
+	try {
+		const response = await apiClient.delete('/user/device-token');
+		return response.data;
+	} catch (error) {
+		throw error;
+	}
 };
 
 // Store device token but refuse Expo tokens (ExponentPushToken).
 // If an Expo token is passed, do a best-effort backend cleanup and return null.
 export const storeDeviceToken = async (deviceToken: string, appType = 'pos_system') => {
-  // refuse Expo push tokens — we only want native FCM tokens stored
-  if (typeof deviceToken === 'string' && deviceToken.startsWith('ExponentPushToken')) {
-    console.warn('Refusing to store Expo push token on backend. Attempting cleanup of any existing token.');
-    try {
-      // best-effort remove any stored token for this user
-      await destroyDeviceToken();
-      console.log('Attempted to remove Expo device token from backend (best-effort).');
-    } catch (err) {
-      console.warn('Failed to remove Expo token from backend during cleanup:', err);
-    }
-    return null;
-  }
+	// refuse Expo push tokens — we only want native FCM tokens stored
+	if (typeof deviceToken === 'string' && deviceToken.startsWith('ExponentPushToken')) {
+		console.warn('Refusing to store Expo push token on backend. Attempting cleanup of any existing token.');
+		try {
+			// best-effort remove any stored token for this user
+			await destroyDeviceToken();
+			console.log('Attempted to remove Expo device token from backend (best-effort).');
+		} catch (err) {
+			console.warn('Failed to remove Expo token from backend during cleanup:', err);
+		}
+		return null;
+	}
 
-  try {
-    const response = await apiClient.post('/user/device-token', { 
-      device_token: deviceToken,
-      device_type: Platform.OS === 'ios' ? 'ios' : 'android',
-      app_type: appType, // new: send app_type to backend
-    });
-    return response.data;
-  } catch (error) {
-    throw error;
-  }
+	try {
+		const response = await apiClient.post('/user/device-token', {
+			device_token: deviceToken,
+			device_type: Platform.OS === 'ios' ? 'ios' : 'android',
+			app_type: appType, // new: send app_type to backend
+		});
+		return response.data;
+	} catch (error) {
+		throw error;
+	}
 };
 
 export const getDeviceTokens = async (): Promise<DeviceToken[]> => {
-  try {
-    const response = await apiClient.get('/user/device-tokens');
-    return response.data;
-  } catch (error) {
-    throw error;
-  }
+	try {
+		const response = await apiClient.get('/user/device-tokens');
+		return response.data;
+	} catch (error) {
+		throw error;
+	}
 };
 
 export const sendTestNotification = async () => {
-  try {
-    const response = await apiClient.post('/notifications/test');
-    return response.data;
-  } catch (error) {
-    throw error;
-  }
+	try {
+		const response = await apiClient.post('/notifications/test');
+		return response.data;
+	} catch (error) {
+		throw error;
+	}
 };
 
 // New internal helper: returns token + flag if token is Expo's token.
 // Important: do NOT treat Expo push tokens as valid FCM tokens for backend registration.
 const getFcmTokenInternal = async (): Promise<{ token: string | null; isExpo: boolean }> => {
-  // try RNFirebase messaging (native FCM)
-  try {
-    // dynamic import avoids crash if package isn't installed
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const messagingModule: any = await import('@react-native-firebase/messaging');
-    // instantiate the messaging module (module() or default())
-    const messagingInstance: any =
-      typeof messagingModule === 'function'
-        ? messagingModule()
-        : (messagingModule.default ? messagingModule.default() : messagingModule);
-    const fcmToken = await messagingInstance.getToken();
-    if (fcmToken) return { token: fcmToken, isExpo: false };
-  } catch {
-    // ignore and fallback
-  }
+	// try RNFirebase messaging (native FCM)
+	try {
+		// dynamic import avoids crash if package isn't installed
+		// eslint-disable-next-line @typescript-eslint/no-var-requires
+		const messagingModule: any = await import('@react-native-firebase/messaging');
+		// instantiate the messaging module (module() or default())
+		const messagingInstance: any =
+			typeof messagingModule === 'function'
+				? messagingModule()
+				: (messagingModule.default ? messagingModule.default() : messagingModule);
+		const fcmToken = await messagingInstance.getToken();
+		if (fcmToken) return { token: fcmToken, isExpo: false };
+	} catch {
+		// ignore and fallback
+	}
 
-  // fallback: expo-notifications (may return Expo token or native token depending on build)
-  try {
-    const Notifications = await import('expo-notifications');
-    const tokenResp: any = await Notifications.getDevicePushTokenAsync();
-    const token = tokenResp?.data ?? tokenResp?.token ?? null;
-    if (!token) return { token: null, isExpo: false };
-    const isExpo = typeof token === 'string' && token.startsWith('ExponentPushToken');
-    return { token, isExpo };
-  } catch {
-    return { token: null, isExpo: false };
-  }
+	// fallback: expo-notifications (may return Expo token or native token depending on build)
+	try {
+		const Notifications = await import('expo-notifications');
+		const tokenResp: any = await Notifications.getDevicePushTokenAsync();
+		const token = tokenResp?.data ?? tokenResp?.token ?? null;
+		if (!token) return { token: null, isExpo: false };
+		const isExpo = typeof token === 'string' && token.startsWith('ExponentPushToken');
+		return { token, isExpo };
+	} catch {
+		return { token: null, isExpo: false };
+	}
 };
 
 // Public: register token with backend, but skip Expo tokens.
 // If an Expo token is detected, attempt to remove any existing token on backend (best-effort),
 // and return null so callers know nothing was stored.
 export const registerFcmTokenAndStore = async (appType = 'pos_system'): Promise<string | null> => {
-  const { token, isExpo } = await getFcmTokenInternal();
+	const { token, isExpo } = await getFcmTokenInternal();
 
-  if (!token) {
-    console.warn('No push token obtained (native FCM or expo).');
-    return null;
-  }
+	if (!token) {
+		console.warn('No push token obtained (native FCM or expo).');
+		return null;
+	}
 
-  if (isExpo) {
-    console.warn('Obtained ExponentPushToken — refusing to register Expo token. Configure native FCM or use react-native-firebase.');
-    // best-effort: ensure backend does not keep an Expo token for this user
-    try {
-      await destroyDeviceToken();
-      console.log('Attempted to remove Expo device token from backend (best-effort).');
-    } catch (err) {
-      console.warn('Failed to remove Expo token from backend during cleanup:', err);
-    }
-    return null;
-  }
+	if (isExpo) {
+		console.warn('Obtained ExponentPushToken — refusing to register Expo token. Configure native FCM or use react-native-firebase.');
+		// best-effort: ensure backend does not keep an Expo token for this user
+		try {
+			await destroyDeviceToken();
+			console.log('Attempted to remove Expo device token from backend (best-effort).');
+		} catch (err) {
+			console.warn('Failed to remove Expo token from backend during cleanup:', err);
+		}
+		return null;
+	}
 
-  try {
-    await storeDeviceToken(token, appType); // pass app_type through
-    console.log('Device token registered with backend:', token);
-    return token;
-  } catch (err) {
-    console.warn('Failed to store device token on backend:', err);
-    return null;
-  }
+	try {
+		await storeDeviceToken(token, appType); // pass app_type through
+		console.log('Device token registered with backend:', token);
+		return token;
+	} catch (err) {
+		console.warn('Failed to store device token on backend:', err);
+		return null;
+	}
 };
 
 // small helper to try parse JSON-ish values
 const tryParse = (v: any) => {
-  try {
-    return typeof v === 'string' ? JSON.parse(v) : v;
-  } catch {
-    return null;
-  }
+	try {
+		return typeof v === 'string' ? JSON.parse(v) : v;
+	} catch {
+		return null;
+	}
 };
 
 // helper: extract candidate stable message id from data (similar to notificationHistoryService logic)
 const extractMessageIdFromData = (data: any): string | undefined => {
-  if (!data) return undefined;
-  const candidates = [
-    data['_message_id'],
-    data['google.message_id'],
-    data?.google?.message_id,
-    data.messageId,
-    data.message_id,
-  ];
-  for (const c of candidates) {
-    if (typeof c === 'string' && c.trim()) return c.trim();
-    if (typeof c === 'number') return String(c);
-  }
-  return undefined;
+	if (!data) return undefined;
+	const candidates = [
+		data['_message_id'],
+		data['google.message_id'],
+		data?.google?.message_id,
+		data.messageId,
+		data.message_id,
+	];
+	for (const c of candidates) {
+		if (typeof c === 'string' && c.trim()) return c.trim();
+		if (typeof c === 'number') return String(c);
+	}
+	return undefined;
 };
 
 // helper: try to find an existing saved notification matching incoming payload
 const findExistingSavedNotification = async (title?: string, body?: string, data?: any) => {
-  try {
-    const list = await notificationHistoryService.getNotifications();
-    const incomingMessageId = extractMessageIdFromData(data);
-    if (incomingMessageId) {
-      const byId = list.find(i => {
-        const idInData = i?.data && (i.data['_message_id'] ?? i.data['google.message_id'] ?? i.data['messageId'] ?? i.data['message_id']);
-        return idInData && String(idInData) === incomingMessageId;
-      });
-      if (byId) return byId;
-    }
-    // fallback: find by exact title+body (most likely same notification)
-    if (title || body) {
-      const found = list.find(i => (i.title ?? '') === (title ?? '') && (i.body ?? '') === (body ?? ''));
-      if (found) return found;
-    }
-  } catch {
-    // ignore lookup errors
-  }
-  return undefined;
+	try {
+		const list = await notificationHistoryService.getNotifications();
+		const incomingMessageId = extractMessageIdFromData(data);
+		if (incomingMessageId) {
+			const byId = list.find(i => {
+				const idInData = i?.data && (i.data['_message_id'] ?? i.data['google.message_id'] ?? i.data['messageId'] ?? i.data['message_id']);
+				return idInData && String(idInData) === incomingMessageId;
+			});
+			if (byId) return byId;
+		}
+		// fallback: find by exact title+body (most likely same notification)
+		if (title || body) {
+			const found = list.find(i => (i.title ?? '') === (title ?? '') && (i.body ?? '') === (body ?? ''));
+			if (found) return found;
+		}
+	} catch {
+		// ignore lookup errors
+	}
+	return undefined;
 };
 
 // Extract sensible { title, body, data } from expo-notifications / FCM objects
 const extractPayloadFromContent = (content: any) => {
-  if (!content) return { title: undefined, body: undefined, data: undefined };
+	if (!content) return { title: undefined, body: undefined, data: undefined };
 
-  const title = content.title ?? content?.notification?.title ?? undefined;
-  const body = content.body ?? content?.notification?.body ?? undefined;
+	const title = content.title ?? content?.notification?.title ?? undefined;
+	const body = content.body ?? content?.notification?.body ?? undefined;
 
-  // content.data may be an object or a JSON string; try to parse
-  const rawData = content.data ?? content?.data ?? undefined;
-  const parsedData = tryParse(rawData) ?? rawData;
+	// content.data may be an object or a JSON string; try to parse
+	const rawData = content.data ?? content?.data ?? undefined;
+	const parsedData = tryParse(rawData) ?? rawData;
 
-  return { title, body, data: parsedData };
+	return { title, body, data: parsedData };
 };
 
 let _listenersRegistered = false;
@@ -194,22 +194,22 @@ const _savedCallbacks = new Set<NotificationSavedCallback>();
 
 // Helper to emit saved notification to all listeners
 const emitSaved = (item: any) => {
-  _savedCallbacks.forEach(cb => {
-	try {
-	  cb(item);
-	} catch (err) {
-	  // Ignore errors in individual callbacks
-	  console.warn('Error in notification saved callback:', err);
-	}
-  });
+	_savedCallbacks.forEach(cb => {
+		try {
+			cb(item);
+		} catch (err) {
+			// Ignore errors in individual callbacks
+			console.warn('Error in notification saved callback:', err);
+		}
+	});
 };
 
 export const onNotificationSaved = (cb: NotificationSavedCallback) => {
-  _savedCallbacks.add(cb);
-  return () => _savedCallbacks.delete(cb);
+	_savedCallbacks.add(cb);
+	return () => _savedCallbacks.delete(cb);
 };
 export const offNotificationSaved = (cb: NotificationSavedCallback) => {
-  _savedCallbacks.delete(cb);
+	_savedCallbacks.delete(cb);
 };
 
 /**
@@ -266,8 +266,8 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 				// addNotification may return null if payload is metadata-only
 				const item = await notificationHistoryService.addNotification({ title, body, data });
 				if (!item) {
-				  // nothing meaningful saved — don't emit or present
-				  return;
+					// nothing meaningful saved — don't emit or present
+					return;
 				}
 
 				// emit to subscribers (NotificationProvider will update UI)
@@ -275,15 +275,15 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 
 				// present a local/system notification to ensure pop-up (foreground)
 				try {
-				  await Notifications.presentNotificationAsync({
-					title: item.title ?? undefined,
-					body: item.body ?? undefined,
-					data: item.data ?? undefined,
-					android: { channelId: 'default', priority: 'max' },
-					ios: { sound: 'default' },
-				  });
+					await Notifications.presentNotificationAsync({
+						title: item.title ?? undefined,
+						body: item.body ?? undefined,
+						data: item.data ?? undefined,
+						android: { channelId: 'default', priority: 'max' },
+						ios: { sound: 'default' },
+					});
 				} catch {
-				  // ignore present errors
+					// ignore present errors
 				}
 			} catch (err) {
 				Alert.alert('Notification not saved', 'Failed to save incoming notification.');
@@ -315,7 +315,7 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 				Alert.alert('Notification not saved', 'Failed to save notification response.');
 			}
 		});
-		
+
 		// --- NEW: try to register react-native-firebase messaging handlers (FCM) ---
 		let fcmOnMessageUnsub: (() => void) | null = null;
 		let fcmOnNotificationOpenedUnsub: (() => void) | null = null;
@@ -420,10 +420,10 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 						}
 					});
 				}
- 
- 				// app opened from quit state via notification
- 				if (typeof messaging.getInitialNotification === 'function') {
- 					try {
+
+				// app opened from quit state via notification
+				if (typeof messaging.getInitialNotification === 'function') {
+					try {
 						const initial = await messaging.getInitialNotification();
 						if (initial) {
 							const content = initial?.notification ?? {};
@@ -439,15 +439,15 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 								await notificationHistoryService.addNotification({ title, body, data });
 							}
 						}
- 					} catch {
- 						// ignore
- 					}
- 				}
- 			}
+					} catch {
+						// ignore
+					}
+				}
+			}
 		} catch {
 			// react-native-firebase/messaging not available - ignore
 		}
-		
+
 		_listenersRegistered = true;
 		return () => {
 			if (receivedSub && typeof receivedSub.remove === 'function') receivedSub.remove();
@@ -464,41 +464,41 @@ export const initNotificationListeners = async (): Promise<() => void> => {
 };
 
 export const sendNotificationToAndroid = async (payload: {
-  title?: string;
-  body?: string;
-  data?: Record<string, any>;
-  device_tokens?: string[]; // optional: target specific tokens
+	title?: string;
+	body?: string;
+	data?: Record<string, any>;
+	device_tokens?: string[]; // optional: target specific tokens
 }) => {
-  try {
-    // Backend should accept device_type to filter recipients; adjust endpoint/body per your API
-    const body = {
-      title: payload.title,
-      body: payload.body,
-      data: payload.data,
-      device_type: 'android',
-      device_tokens: payload.device_tokens, // undefined = broadcast to android devices
-    };
-    const response = await apiClient.post('/notifications/send', body);
-    return response.data;
-  } catch (err) {
-    throw err;
-  }
+	try {
+		// Backend should accept device_type to filter recipients; adjust endpoint/body per your API
+		const body = {
+			title: payload.title,
+			body: payload.body,
+			data: payload.data,
+			device_type: 'android',
+			device_tokens: payload.device_tokens, // undefined = broadcast to android devices
+		};
+		const response = await apiClient.post('/notifications/send', body);
+		return response.data;
+	} catch (err) {
+		throw err;
+	}
 };
 
 export const sendNotificationToDeviceOnAndroid = async (deviceToken: string, payload: {
-  title?: string;
-  body?: string;
-  data?: Record<string, any>;
+	title?: string;
+	body?: string;
+	data?: Record<string, any>;
 }) => {
-  try {
-    const response = await sendNotificationToAndroid({
-      title: payload.title,
-      body: payload.body,
-      data: payload.data,
-      device_tokens: [deviceToken],
-    });
-    return response;
-  } catch (err) {
-    throw err;
-  }
+	try {
+		const response = await sendNotificationToAndroid({
+			title: payload.title,
+			body: payload.body,
+			data: payload.data,
+			device_tokens: [deviceToken],
+		});
+		return response;
+	} catch (err) {
+		throw err;
+	}
 };
