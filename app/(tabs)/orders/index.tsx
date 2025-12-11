@@ -1,6 +1,6 @@
-// OrdersScreen: displays menu items, cart UI and order submission modal.
+// OrdersScreen: displays menu items and cart UI only.
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, Dimensions, Alert, Modal, TextInput, Switch, KeyboardAvoidingView, ScrollView, TouchableWithoutFeedback, Keyboard, Platform } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, Dimensions, Alert, Modal, TextInput, ScrollView, TouchableWithoutFeedback, Keyboard, Switch } from 'react-native';
 import { useRouter } from 'expo-router';
 import { fetchMenuData, fetchMenuItemByIdEndpoint } from '../../../services/menuService';
 import { orderService } from '../../../services/orderService';
@@ -14,96 +14,41 @@ export default function OrdersScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
-  // replace simple cart with entryId-based cart supporting combos
   const [cart, setCart] = useState<{ entryId: string, item: MenuItem, quantity: number, combos?: { comboId: number, menuId: number, menu?: any }[] }[]>([]);
   const [showCart, setShowCart] = useState(false);
-  const [showOrderModal, setShowOrderModal] = useState(false);
-  const [orderDetails, setOrderDetails] = useState<{
-    tableId: string;
-    orderType?: string;
-    customer?: { id: string; name: string };
-    room?: { id: string; name: string };
-    stewardId?: string | null;
-  }>({ tableId: '' });
-  const [enableServiceCharge, setEnableServiceCharge] = useState(true);
   const [menuData, setMenuData] = useState<MenuResponse | null>(null);
   const [categories, setCategories] = useState<{id: number | string, name?: string, label?: string}[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | string | null>(null);
-
-  // add search state
-  const [searchQuery, setSearchQuery] = useState<string>(
-    ''
-  );
-
-  // combo modal state
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [comboModalVisible, setComboModalVisible] = useState(false);
   const [comboContext, setComboContext] = useState<{ baseItem: MenuItem | null, combos: any[] } | null>(null);
   const [selectedComboChoices, setSelectedComboChoices] = useState<Record<string | number, number>>({});
-
-  // steward list intentionally empty to reflect "steward list danata null thiyanna"
-  const [stewardList, setStewardList] = useState<{ id: string; name: string }[]>([]);
-
-  // selection modal (reused for customer/room/steward)
-  const [selectionModalVisible, setSelectionModalVisible] = useState(false);
-  const [selectionModalContext, setSelectionModalContext] = useState<'customer' | 'room' | 'steward' | 'table' | null>(null);
-  const [selectionModalOptions, setSelectionModalOptions] = useState<{ id: string; label: string }[]>([]);
-
-  // placed order modal
+  const [showOrderModal, setShowOrderModal] = useState(false);
+  const [orderDetails, setOrderDetails] = useState<{
+    tableId: string;
+    orderType: string;
+    customer: string;
+    room: string;
+    stewardId: string;
+  }>({
+    tableId: '',
+    orderType: 'Dine In',
+    customer: '',
+    room: '',
+    stewardId: '',
+  });
+  const [enableServiceCharge, setEnableServiceCharge] = useState(true);
   const [orderPlacedModalVisible, setOrderPlacedModalVisible] = useState(false);
   const [placedOrderSummary, setPlacedOrderSummary] = useState<any | null>(null);
 
   const router = useRouter();
 
-  // default simple options (walk-in)
-  const orderTypeOptions = [{ id: 'dine_in', label: 'Dine In' }, { id: 'takeaway', label: 'Takeaway' }];
-  const customerOptions = [{ id: 'walk_in', label: 'Walk In Customer' }];
-  const roomOptions = [{ id: 'walk_in', label: 'Walk In Customer' }];
-  const tableOptions = [
-    { id: '', label: 'None' },           // default
-    { id: '1', label: 'Table 1' },
-    { id: '2', label: 'Table 2' },
-    { id: '3', label: 'Table 3' },
-  ];
-
-  // helper to open selection modal for customers/rooms/stewards
-  const openSelectionModal = (ctx: 'customer' | 'room' | 'steward' | 'table') => {
-    setSelectionModalContext(ctx);
-    if (ctx === 'customer') setSelectionModalOptions(customerOptions);
-    else if (ctx === 'room') setSelectionModalOptions(roomOptions);
-    else if (ctx === 'table') setSelectionModalOptions(tableOptions);
-    else {
-      const opts = stewardList.length > 0 ? stewardList.map(s => ({ id: s.id, label: s.name })) : [{ id: 'none', label: 'None' }];
-      setSelectionModalOptions(opts);
-    }
-    setSelectionModalVisible(true);
-  };
-
-  const chooseSelectionOption = (option: { id: string; label: string }) => {
-    if (!selectionModalContext) return;
-    if (selectionModalContext === 'customer') {
-      setOrderDetails(prev => ({ ...prev, customer: { id: option.id, name: option.label } }));
-    } else if (selectionModalContext === 'room') {
-      setOrderDetails(prev => ({ ...prev, room: { id: option.id, name: option.label } }));
-    } else if (selectionModalContext === 'steward') {
-      setOrderDetails(prev => ({ ...prev, stewardId: option.id === 'none' ? null : option.id }));
-    } else if (selectionModalContext === 'table') {
-      // option.id '' means None
-      setOrderDetails(prev => ({ ...prev, tableId: option.id }));
-    }
-    setSelectionModalVisible(false);
-    setSelectionModalContext(null);
-  };
-
-  // ensure defaults are present when resetting or new order
-  useEffect(() => {
-    setOrderDetails(prev => ({
-      tableId: prev.tableId ?? '',
-      orderType: prev.orderType ?? 'Dine In',
-      customer: prev.customer ?? { id: 'walk_in', name: 'Walk In Customer' },
-      room: prev.room ?? { id: 'walk_in', name: 'Walk In Customer' },
-      stewardId: prev.stewardId ?? null,
-    }));
-  }, []);
+  // Calculate cartTotal so it is available in the component
+  const cartTotal = cart.reduce((sum, c) => {
+    const base = Number(c.item.price) || 0;
+    const combosPrice = (c.combos || []).reduce((s, sc) => s + (Number(sc.menu?.price) || 0), 0);
+    return sum + (base + combosPrice) * c.quantity;
+  }, 0);
 
   useEffect(() => {
     const loadMenuData = async () => {
@@ -113,20 +58,11 @@ export default function OrdersScreen() {
         const normalizedCategories = (data.categories || []).map((cat: any, index: number) => {
           if (cat && typeof cat === 'object') {
             const idValue = cat.id ?? cat.category_id ?? index;
-            const label =
-              cat.label ??
-              cat.name ??
-              cat.category_name ??
-              cat.title ??
-              `Category ${idValue ?? index + 1}`;
+            const label = cat.label ?? cat.name ?? cat.category_name ?? cat.title ?? `Category ${idValue ?? index + 1}`;
             return { ...cat, id: idValue, label };
           }
-          if (typeof cat === 'string') {
-            return { id: cat, label: cat };
-          }
-          if (typeof cat === 'number') {
-            return { id: cat, label: `Category ${cat}` };
-          }
+          if (typeof cat === 'string') return { id: cat, label: cat };
+          if (typeof cat === 'number') return { id: cat, label: `Category ${cat}` };
           return { id: index, label: `Category ${index + 1}` };
         });
         setCategories(normalizedCategories);
@@ -140,7 +76,6 @@ export default function OrdersScreen() {
     loadMenuData();
   }, []);
 
-  // helper: prefer plain (no combos) entry for a menu id, else return first entryId
   const findPreferredEntryId = (menuId: number | string) => {
     const plain = cart.find(c => String(c.item.id) === String(menuId) && (!c.combos || c.combos.length === 0));
     if (plain) return plain.entryId;
@@ -212,7 +147,7 @@ export default function OrdersScreen() {
       const chosenMenu = (c.combo_item || []).find((ci: any) => {
         const m = ci.menu ?? ci;
         return String(m?.id ?? ci.menu_id ?? ci.id) === String(chosenMenuId);
-      })?.menu ?? (c.combo_item || []).find((ci:any)=>String(ci?.menu_id ?? ci?.id)===String(chosenMenuId)) ?? null;
+      })?.menu ?? null;
       return { comboId: c.id ?? idx, menuId: chosenMenuId, menu: chosenMenu ?? null };
     });
 
@@ -238,7 +173,6 @@ export default function OrdersScreen() {
     setSelectedComboChoices({});
   };
 
-  // updateQuantity and removeFromCart operate on entryId
   const updateQuantity = (entryId: string, delta: number) => {
     setCart(prev => prev.map(c => {
       if (c.entryId === entryId) {
@@ -259,36 +193,60 @@ export default function OrdersScreen() {
 
   const submitOrder = async () => {
     try {
-      const orderId = orderService.createOrder(orderDetails.tableId);
-      cart.forEach(c => {
-        orderService.addItemToOrder(orderId, c.item, c.quantity);
-      });
-      // Update total with service charge if enabled
-      const order = orderService.getOrder(orderId);
-      if (order) {
-        const serviceCharge = enableServiceCharge ? order.total * 0.1 : 0;
-        order.total += serviceCharge;
+      if (!orderDetails.orderType || orderDetails.orderType.trim().length === 0) {
+        Alert.alert('Error', 'Please select Order Type');
+        return;
       }
-      await orderService.submitOrder(orderId);
+      if (cart.length === 0) {
+        Alert.alert('Error', 'Cart is empty');
+        return;
+      }
 
-      // Prepare placed order summary to show in a modal
-      const subtotal = cart.reduce((sum, c) => sum + Number(c.item.price) * c.quantity, 0);
+      const orderId = orderService.createOrder(orderDetails.tableId);
+
+      cart.forEach(c => {
+        const modifiers = (c.combos || []).map(combo => ({
+          menu_id: combo.menuId,
+          name: combo.menu?.name || 'Option'
+        }));
+        
+        const menuItemWithModifiers = {
+          ...c.item,
+          modifiers: modifiers.length > 0 ? modifiers : undefined
+        };
+        
+        orderService.addItemToOrder(orderId, menuItemWithModifiers, c.quantity, c.item.special_note ?? undefined);
+      });
+
+      const subtotal = cart.reduce((sum, c) => {
+        const base = Number(c.item.price) || 0;
+        const comboPrice = (c.combos || []).reduce((s, combo) => s + (Number(combo.menu?.price) || 0), 0);
+        return sum + (base + comboPrice) * c.quantity;
+      }, 0);
+
       const serviceCharge = enableServiceCharge ? subtotal * 0.1 : 0;
-      const total = subtotal + serviceCharge;
-      const tableLabel = tableOptions.find(t => String(t.id) === String(orderDetails.tableId))?.label ?? (orderDetails.tableId || 'None');
+      const totalAmount = subtotal + serviceCharge;
+
+      const response = await orderService.submitOrder(orderId, {
+        orderType: orderDetails.orderType,
+        customer: orderDetails.customer
+          ? { id: orderDetails.customer, name: `Customer ${orderDetails.customer}` }
+          : undefined,
+        room: orderDetails.room
+          ? { id: orderDetails.room, name: `Room ${orderDetails.room}` }
+          : undefined,
+        tableId: orderDetails.tableId || undefined,
+        stewardId: orderDetails.stewardId || undefined,
+        serviceCharge,
+      });
 
       setPlacedOrderSummary({
-        orderId,
-        tableId: orderDetails.tableId,
-        tableLabel,
-        orderType: orderDetails.orderType ?? 'Dine In',
-        customer: orderDetails.customer ?? { id: 'walk_in', name: 'Walk In Customer' },
-        room: orderDetails.room ?? { id: 'walk_in', name: 'Walk In Customer' },
-        stewardId: orderDetails.stewardId ?? null,
+        orderId: response.data.order_id,
+        orderNumber: response.data.order_number,
         items: cart.map(c => ({ name: c.item.name, qty: c.quantity, price: Number(c.item.price) })),
         subtotal,
         serviceCharge,
-        total,
+        total: totalAmount,
       });
 
       setCart([]);
@@ -296,39 +254,22 @@ export default function OrdersScreen() {
       setShowOrderModal(false);
       setOrderPlacedModalVisible(true);
 
-      // reset order details to defaults
-      setOrderDetails({
-        tableId: '',
-        orderType: 'Dine In',
-        customer: { id: 'walk_in', name: 'Walk In Customer' },
-        room: { id: 'walk_in', name: 'Walk In Customer' },
-        stewardId: null,
-      });
+      setOrderDetails({ tableId: '', orderType: 'Dine In', customer: '', room: '', stewardId: '' });
       setEnableServiceCharge(true);
-      // we no longer use alert here; show placed modal instead
-    } catch (err) {
-      Alert.alert('Error', 'Failed to place order');
-      // Close order modal and any selection/combo overlays; dismiss keyboard.
-      setShowOrderModal(false);
-      setSelectionModalVisible(false);
-      setComboModalVisible(false);
-      Keyboard.dismiss();
-      // Re-open cart after a short delay so touch handlers are active.
-      setTimeout(() => setShowCart(true), 50);
+    } catch (err: any) {
+      const errorMessage = err?.response?.data?.message || 'Failed to place order';
+      Alert.alert('Error', errorMessage);
     }
   };
 
   if (loading) return <Text>Loading...</Text>;
   if (error) return <Text>{error}</Text>;
 
-  // replace filteredMenuItems to respect category + search
   const filteredMenuItems = menuItems.filter(item => {
-    // category filter
     if (selectedCategoryId) {
       const catList = menuData?.recipeCategoriesWithMenus?.[String(selectedCategoryId)];
       if (!catList || !catList.includes(item.id)) return false;
     }
-    // search filter (case-insensitive, matches name, item_code, special_note)
     if (searchQuery && searchQuery.trim() !== '') {
       const q = searchQuery.trim().toLowerCase();
       const name = (item.name ?? '').toString().toLowerCase();
@@ -340,7 +281,6 @@ export default function OrdersScreen() {
   });
 
   const renderMenuItems = () => {
-    // cart total includes combo item prices (if provided)
     const cartTotal = cart.reduce((sum, c) => {
       const base = Number(c.item.price) || 0;
       const combosPrice = (c.combos || []).reduce((s, sc) => s + (Number(sc.menu?.price) || 0), 0);
@@ -373,7 +313,6 @@ export default function OrdersScreen() {
           </View>
         </View>
 
-        {/* Category area: fixed min height so layout doesn't jump when count/rows change */}
         <View style={styles.categoryArea}>
         {categories.length > 0 && (() => {
            // build a categories data array that always includes "All" as first item
@@ -427,7 +366,6 @@ export default function OrdersScreen() {
           showsVerticalScrollIndicator={false}
           renderItem={({ item }) => {
             const imgUri = item.image ? imageBase + item.image.replace(/^\/+/, '') : null;
-            // aggregated quantity for this menu id
             const aggregatedQty = cart.filter(c => String(c.item.id) === String(item.id)).reduce((s, c) => s + c.quantity, 0);
             const cartEntryPreferredId = findPreferredEntryId(item.id);
             const isAvailable = item.is_available !== 0;
@@ -488,21 +426,35 @@ export default function OrdersScreen() {
             <Text style={styles.cartSummaryCta}>View Cart</Text>
           </TouchableOpacity>
         )}
-        {showCart && (
-          <View style={styles.cartContainer}>
-            <View style={styles.cartHeader}>
-              <View>
-                <Text style={styles.cartTitle}>Cart</Text>
-                <Text style={styles.cartSubtitle}>{cart.length} {cart.length === 1 ? 'item' : 'items'} • Rs {cartTotal.toFixed(2)}</Text>
-              </View>
-              <TouchableOpacity onPress={() => setShowCart(false)}>
-                <Text style={styles.hideCartText}>Hide</Text>
-              </TouchableOpacity>
+      </>
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+      {renderMenuItems()}
+
+      {/* Cart display (single location) */}
+      {showCart && (
+        <View style={styles.cartContainer}>
+          <View style={styles.cartHeader}>
+            <View>
+              <Text style={styles.cartTitle}>Cart</Text>
+              <Text style={styles.cartSubtitle}>{cart.length} {cart.length === 1 ? 'item' : 'items'} • Rs {cartTotal.toFixed(2)}</Text>
             </View>
+            <TouchableOpacity onPress={() => setShowCart(false)}>
+              <Text style={styles.hideCartText}>Hide</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {/* Scrollable cart items with fixed height */}
+          <View style={styles.cartItemsWrapper}>
             <FlatList
               data={cart}
               keyExtractor={(c) => c.entryId}
               ItemSeparatorComponent={() => <View style={styles.cartDivider} />}
+              showsVerticalScrollIndicator={true}
+              nestedScrollEnabled={true}
               renderItem={({ item: cartItem }) => (
                 <View style={styles.cartItem}>
                   <View style={{ flex: 1 }}>
@@ -533,196 +485,147 @@ export default function OrdersScreen() {
                 </View>
               )}
             />
-            <TouchableOpacity style={styles.placeOrderButton} onPress={placeOrder}>
-              <Text style={styles.placeOrderText}>Place Order</Text>
-            </TouchableOpacity>
           </View>
-        )}
-      </>
-    );
-  };
 
-  return (
-    <View style={styles.container}>
-      {/* <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Orders</Text>
-        <View style={styles.spacer} />
-      </View>*/}
-      {renderMenuItems()}
+          {/* Place Order Button - Always visible at bottom */}
+          <TouchableOpacity style={styles.placeOrderButton} onPress={placeOrder}>
+            <Text style={styles.placeOrderText}>Place Order</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Order Modal */}
       <Modal visible={showOrderModal} animationType="slide" transparent>
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.modalOverlay}>
-            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoid}>
-              <ScrollView contentContainerStyle={styles.scrollContent}>
-                <View style={styles.modalContent}>
-                  <Text style={styles.modalTitle}>Order Details</Text>
+            <ScrollView contentContainerStyle={styles.scrollContent}>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>Order Details</Text>
 
-                  <TouchableOpacity style={[styles.input, styles.selectRow]} onPress={() => openSelectionModal('table')}>
-                    <Text style={{ color: '#6B7280' }}>Table</Text>
-                    <Text style={styles.selectValue}>
-                      {(() => {
-                        const sel = tableOptions.find(t => String(t.id) === String(orderDetails.tableId));
-                        return sel ? sel.label : (orderDetails.tableId ? String(orderDetails.tableId) : 'None');
-                      })()}
-                    </Text>
-                  </TouchableOpacity>
-
-                  {/* order type segmented control */}
-                  <View style={{ marginBottom: 10 }}>
-                    <Text style={{ marginBottom: 6 }}>Order Type</Text>
-                    <View style={styles.segmentedControl}>
-                      {orderTypeOptions.map(opt => {
-                        const active = ((opt.id === 'dine_in' && orderDetails.orderType === 'Dine In') || (opt.id === 'takeaway' && orderDetails.orderType === 'Takeaway'));
-                        return (
-                          <TouchableOpacity
-                            key={opt.id}
-                            activeOpacity={0.9}
-                            onPress={() => setOrderDetails(prev => ({ ...prev, orderType: opt.id === 'dine_in' ? 'Dine In' : 'Takeaway' }))}
-                            style={[styles.segmentButton, active && styles.segmentButtonActive]}
-                          >
-                            <Text style={[styles.segmentButtonText, active && styles.segmentButtonTextActive]}>{opt.label}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </View>
-
-                  {/* customer select */}
-                  <TouchableOpacity style={[styles.input, styles.selectRow]} onPress={() => openSelectionModal('customer')}>
-                    <Text style={{ color: '#6B7280' }}>Customer</Text>
-                    <Text style={styles.selectValue}>{orderDetails.customer?.name ?? 'Walk In Customer'}</Text>
-                  </TouchableOpacity>
-
-                  {/* room select */}
-                  <TouchableOpacity style={[styles.input, styles.selectRow]} onPress={() => openSelectionModal('room')}>
-                    <Text style={{ color: '#6B7280' }}>Room</Text>
-                    <Text style={styles.selectValue}>{orderDetails.room?.name ?? 'Walk In Customer'}</Text>
-                  </TouchableOpacity>
-
-                  {/* steward select */}
-                  <TouchableOpacity style={[styles.input, styles.selectRow]} onPress={() => openSelectionModal('steward')}>
-                    <Text style={{ color: '#6B7280' }}>Steward</Text>
-                    <Text style={styles.selectValue}>{orderDetails.stewardId ? (stewardList.find(s => s.id === orderDetails.stewardId)?.name ?? orderDetails.stewardId) : 'None'}</Text>
-                  </TouchableOpacity>
-
-                  <View style={styles.serviceChargeRow}>
-                    <Text>Enable Service Charge (10%)</Text>
-                    <Switch value={enableServiceCharge} onValueChange={setEnableServiceCharge} />
-                  </View>
-                  {(() => {
-                    const subtotal = cart.reduce((sum, c) => sum + Number(c.item.price) * c.quantity, 0);
-                    const serviceCharge = enableServiceCharge ? subtotal * 0.1 : 0;
-                    const total = subtotal + serviceCharge;
-                    return (
-                      <View style={styles.billSummary}>
-                        <Text>Subtotal: Rs {subtotal.toFixed(2)}</Text>
-                        <Text>Service Charge: Rs {serviceCharge.toFixed(2)}</Text>
-                        <Text style={styles.totalText}>Total: Rs {total.toFixed(2)}</Text>
-                      </View>
-                    );
-                  })()}
-                  <View style={styles.modalButtons}>
+                <Text style={styles.label}>Order Type *</Text>
+                <View style={styles.segmentedControl}>
+                  {['Dine In', 'Take away'].map(type => (
                     <TouchableOpacity
-                      style={styles.cancelButton}
-                      onPress={() => {
-                        // Close order modal and make sure all overlays / keyboards are closed
-                        setShowOrderModal(false);
-                        setSelectionModalVisible(false);
-                        setComboModalVisible(false);
-                        Keyboard.dismiss();
-                        // Slight delay to avoid touch overlay issues while modal animates out
-                        setTimeout(() => setShowCart(true), 50);
-                      }}
+                      key={type}
+                      onPress={() => setOrderDetails(prev => ({ ...prev, orderType: type }))}
+                      style={[styles.segmentButton, orderDetails.orderType === type && styles.segmentButtonActive]}
                     >
-                       <Text style={styles.cancelText}>Cancel</Text>
-                     </TouchableOpacity>
-                     <TouchableOpacity style={styles.submitButton} onPress={submitOrder}>
-                       <Text style={styles.submitText}>Submit Order</Text>
-                     </TouchableOpacity>
-                   </View>
-                 </View>
-               </ScrollView>
-             </KeyboardAvoidingView>
-           </View>
-         </TouchableWithoutFeedback>
-       </Modal>
-
-      {/* selection modal (customer/room/steward) */}
-      {selectionModalVisible && (
-        <Modal visible={selectionModalVisible} animationType="slide" transparent>
-          <TouchableWithoutFeedback onPress={() => setSelectionModalVisible(false)}>
-            <View style={styles.modalOverlay}>
-              <View style={[styles.modalContent, { maxHeight: '60%' }]}>
-                <Text style={[styles.modalTitle, { color: '#111827' }]}>{selectionModalContext === 'customer' ? 'Choose Customer' : selectionModalContext === 'room' ? 'Choose Room' : selectionModalContext === 'table' ? 'Choose Table' : 'Choose Steward'}</Text>
-                <ScrollView style={{ marginTop: 12 }}>
-                  {selectionModalOptions.map(opt => (
-                    <TouchableOpacity
-                      key={opt.id}
-                      activeOpacity={0.85}
-                      onPress={() => chooseSelectionOption(opt)}
-                      style={styles.selectionOption}
-                    >
-                      <Text style={{ fontWeight: '700' }}>{opt.label}</Text>
+                      <Text style={[styles.segmentButtonText, orderDetails.orderType === type && styles.segmentButtonTextActive]}>
+                        {type}
+                      </Text>
                     </TouchableOpacity>
                   ))}
-                </ScrollView>
-                <View style={{ marginTop: 12 }}>
-                  <TouchableOpacity style={[styles.cancelButton, { alignItems: 'center' }]} onPress={() => setSelectionModalVisible(false)}>
-                    <Text style={styles.cancelText}>Close</Text>
+                </View>
+
+                <Text style={styles.label}>Customer ID</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g., 12"
+                  value={orderDetails.customer}
+                  onChangeText={(text) => setOrderDetails(prev => ({ ...prev, customer: text }))}
+                  keyboardType="numeric"
+                />
+
+                <Text style={styles.label}>Room ID</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g., 3"
+                  value={orderDetails.room}
+                  onChangeText={(text) => setOrderDetails(prev => ({ ...prev, room: text }))}
+                  keyboardType="numeric"
+                />
+
+                <Text style={styles.label}>Table ID</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g., 5"
+                  value={orderDetails.tableId}
+                  onChangeText={(text) => setOrderDetails(prev => ({ ...prev, tableId: text }))}
+                  keyboardType="numeric"
+                />
+
+                <Text style={styles.label}>Steward ID</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g., 7"
+                  value={orderDetails.stewardId}
+                  onChangeText={(text) => setOrderDetails(prev => ({ ...prev, stewardId: text }))}
+                  keyboardType="numeric"
+                />
+
+                <View style={styles.serviceChargeRow}>
+                  <Text>Enable Service Charge (10%)</Text>
+                  <Switch value={enableServiceCharge} onValueChange={setEnableServiceCharge} />
+                </View>
+
+                {/* Price Summary */}
+                <View style={styles.priceSummaryContainer}>
+                  <Text style={styles.priceSummaryTitle}>Order Summary</Text>
+                  <View style={styles.priceSummaryRow}>
+                    <Text style={styles.priceSummaryLabel}>Subtotal:</Text>
+                    <Text style={styles.priceSummaryValue}>Rs {cartTotal.toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.priceSummaryRow}>
+                    <Text style={styles.priceSummaryLabel}>Service Charge (10%):</Text>
+                    <Text style={styles.priceSummaryValue}>
+                      Rs {enableServiceCharge ? (cartTotal * 0.1).toFixed(2) : '0.00'}
+                    </Text>
+                  </View>
+                  <View style={[styles.priceSummaryRow, styles.priceSummaryTotal]}>
+                    <Text style={styles.priceTotalLabel}>Total:</Text>
+                    <Text style={styles.priceTotalValue}>
+                      Rs {(cartTotal + (enableServiceCharge ? cartTotal * 0.1 : 0)).toFixed(2)}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={styles.cancelButton}
+                    onPress={() => setShowOrderModal(false)}
+                  >
+                    <Text style={styles.cancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.submitButton}
+                    onPress={submitOrder}
+                  >
+                    <Text style={styles.submitText}>Submit Order</Text>
                   </TouchableOpacity>
                 </View>
               </View>
-            </View>
-          </TouchableWithoutFeedback>
-        </Modal>
-      )}
+            </ScrollView>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
 
-      {/* placed order summary modal shown after successful submit */}
+      {/* Order Placed Modal */}
       <Modal visible={orderPlacedModalVisible} animationType="slide" transparent>
         <TouchableWithoutFeedback onPress={() => setOrderPlacedModalVisible(false)}>
           <View style={styles.modalOverlay}>
             <View style={[styles.modalContent, { maxHeight: '80%' }]}>
-              <Text style={[styles.modalTitle, { color: '#111827' }]}>Order Placed</Text>
-              {placedOrderSummary ? (
-                <View style={{ marginTop: 12 }}>
-                  <Text style={{ fontWeight: '700', marginBottom: 6 }}>Order ID: {placedOrderSummary.orderId}</Text>
-                  <Text>Table: {placedOrderSummary.tableLabel ?? (placedOrderSummary.tableId || '-')}</Text>
-                  <Text>Type: {placedOrderSummary.orderType}</Text>
-                  <Text>Customer: {placedOrderSummary.customer?.name ?? '-'}</Text>
-                  <Text>Room: {placedOrderSummary.room?.name ?? '-'}</Text>
-                  <Text>Steward: {placedOrderSummary.stewardId ? (stewardList.find(s => s.id === placedOrderSummary.stewardId)?.name ?? placedOrderSummary.stewardId) : 'None'}</Text>
-
-                  <View style={{ marginTop: 10 }}>
-                    <Text style={{ fontWeight: '700' }}>Items</Text>
-                    {placedOrderSummary.items.map((it: any, idx: number) => (
-                      <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
-                        <Text>{it.name} x{it.qty}</Text>
-                        <Text>Rs {Number(it.price * it.qty).toFixed(2)}</Text>
-                      </View>
-                    ))}
-                  </View>
-
-                  <View style={{ marginTop: 12 }}>
-                    <Text>Subtotal: Rs {placedOrderSummary.subtotal.toFixed(2)}</Text>
-                    <Text>Service Charge: Rs {placedOrderSummary.serviceCharge.toFixed(2)}</Text>
-                    <Text style={styles.totalText}>Total: Rs {placedOrderSummary.total.toFixed(2)}</Text>
-                  </View>
-
-                  <View style={{ marginTop: 14, flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <TouchableOpacity style={[styles.cancelButton, { flex: 1, marginRight: 8 }]} onPress={() => setOrderPlacedModalVisible(false)}>
-                      <Text style={styles.cancelText}>Close</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.submitButton, { flex: 1, marginLeft: 8 }]} onPress={() => setOrderPlacedModalVisible(false)}>
-                      <Text style={styles.submitText}>Done</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ) : (
-                <Text>No summary available</Text>
+              <Text style={styles.modalTitle}>Order Placed</Text>
+              {placedOrderSummary && (
+                <ScrollView>
+                  <Text style={styles.summaryText}>Order ID: {placedOrderSummary.orderId}</Text>
+                  <Text style={styles.summaryText}>Order Number: {placedOrderSummary.orderNumber}</Text>
+                  <Text style={styles.summarySubtitle}>Items:</Text>
+                  {placedOrderSummary.items.map((item: any, idx: number) => (
+                    <Text key={idx} style={styles.summaryText}>
+                      {item.qty}x {item.name} - Rs {(item.qty * item.price).toFixed(2)}
+                    </Text>
+                  ))}
+                  <Text style={styles.summaryText}>Subtotal: Rs {placedOrderSummary.subtotal.toFixed(2)}</Text>
+                  <Text style={styles.summaryText}>Service Charge: Rs {placedOrderSummary.serviceCharge.toFixed(2)}</Text>
+                  <Text style={styles.totalText}>Total: Rs {placedOrderSummary.total.toFixed(2)}</Text>
+                </ScrollView>
               )}
+              <TouchableOpacity
+                style={styles.submitButton}
+                onPress={() => setOrderPlacedModalVisible(false)}
+              >
+                <Text style={styles.submitText}>Done</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </TouchableWithoutFeedback>
@@ -823,6 +726,13 @@ const styles = StyleSheet.create({
   categoryArea: {
     minHeight: 64,
     justifyContent: 'center',
+  },
+  serviceChargeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginVertical: 12,
+    paddingHorizontal: 4,
   },
   searchBar: {
     flexDirection: 'row',
@@ -1015,6 +925,11 @@ const styles = StyleSheet.create({
     elevation: 2,
     borderWidth: 1,
     borderColor: '#F3F4F6',
+    maxHeight: height * 0.7, // Limit cart height to 70% of screen
+  },
+  cartItemsWrapper: {
+    maxHeight: height * 0.45, // Max height for scrollable items area
+    marginBottom: 12,
   },
   cartHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   cartTitle: { fontSize: 20, fontWeight: '700', color: '#111827' },
@@ -1064,7 +979,6 @@ const styles = StyleSheet.create({
   cancelText: { color: '#111827' },
   submitButton: { backgroundColor: '#FF6B6B', padding: 10, borderRadius: 5 },
   submitText: { color: '#FFFFFF' },
-  serviceChargeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   billSummary: { marginBottom: 20 },
   totalText: { fontWeight: 'bold', fontSize: 18, color: '#111827' },
   header: {
@@ -1182,5 +1096,98 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderBottomWidth: 1,
     borderColor: '#F3F4F6',
+  },
+  // added small container for right-side controls
+  searchRight: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 12 },
+
+  // --- added styles for ongoing drawer and toggle ---
+  ongoingToggle: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 },
+  ongoingToggleText: { color: '#111827', fontWeight: '700', marginRight: 8, fontSize: 13 },
+  ongoingBadge: { backgroundColor: '#FF6B6B', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
+  ongoingBadgeText: { color: '#fff', fontWeight: '800', fontSize: 12 },
+
+  ongoingOverlay: {
+    position: 'absolute',
+    inset: 0,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    zIndex: 900,
+  },
+  ongoingDrawer: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    height: '100%',
+    width: 360,
+    maxWidth: '100%',
+    backgroundColor: '#fff',
+    zIndex: 950,
+    shadowColor: '#000',
+    shadowOffset: { width: -6, height: 0 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    elevation: 8,
+    display: 'flex',
+    flexDirection: 'column',
+    borderLeftWidth: 1,
+    borderLeftColor: '#F3F4F6',
+  },
+  ongoingDrawerOpen: { transform: [{ translateX: 0 }] },
+  ongoingDrawerClosed: { transform: [{ translateX: 400 }] },
+
+  ongoingHeader: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  ongoingTitle: { fontWeight: '800', fontSize: 16 },
+
+  ongoingOrderCard: { borderWidth: 1, borderColor: '#F3F4F6', borderRadius: 10, padding: 12, marginBottom: 12, backgroundColor: '#FFFFFF' },
+  ongoingStatusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, backgroundColor: '#FEF3C7', alignItems: 'center' },
+  ongoingActionBtn: { flex: 1, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center' },
+  ongoingActionText: { color: '#111827', fontWeight: '700' },
+  label: { marginTop: 12, marginBottom: 6, fontWeight: '700', color: '#111827' },
+  summaryText: { marginVertical: 4, color: '#111827' },
+  summarySubtitle: { marginTop: 12, fontWeight: '700', color: '#111827' },
+  priceSummaryContainer: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 16,
+    marginVertical: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  priceSummaryTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  priceSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  priceSummaryLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  priceSummaryValue: {
+    fontSize: 14,
+    color: '#111827',
+    fontWeight: '600',
+  },
+  priceSummaryTotal: {
+    marginTop: 8,
+    paddingTop: 12,
+    borderTopWidth: 2,
+    borderTopColor: '#FF6B6B',
+  },
+  priceTotalLabel: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  priceTotalValue: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#FF6B6B',
   },
 });

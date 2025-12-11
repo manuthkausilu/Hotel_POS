@@ -16,6 +16,7 @@ export default function Drawer({ isOpen, onClose }: DrawerProps) {
   const menuItems = [
     { icon: 'home-outline', label: 'Dashboard', route: '/' },
     { icon: 'restaurant-outline', label: 'Menu', route: '../menu' },
+    { icon: 'list-outline', label: 'History', route: '../orderHistory' },
     { icon: 'notifications-outline', label: 'Notifications', route: '../debug/asyncStorageDebug' },
   ];
 
@@ -66,7 +67,6 @@ export default function Drawer({ isOpen, onClose }: DrawerProps) {
                   <Text style={styles.userName} numberOfLines={1}>
                     {user.name || user.email}
                   </Text>
-                  <Text style={styles.userRole}>User Name</Text>
                 </View>
               </View>
             )}
