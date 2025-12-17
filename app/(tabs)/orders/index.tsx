@@ -1,7 +1,6 @@
 // OrdersScreen: displays menu items and cart UI only.
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, Dimensions, Alert, Modal, TextInput, ScrollView, TouchableWithoutFeedback, Keyboard, Switch } from 'react-native';
-import { useRouter } from 'expo-router';
 import { fetchMenuData, fetchMenuItemByIdEndpoint } from '../../../services/menuService';
 import { orderService } from '../../../services/orderService';
 import type { MenuItem, MenuResponse } from '../../../types/menu';
@@ -14,7 +13,7 @@ export default function OrdersScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
-  const [cart, setCart] = useState<{ entryId: string, item: MenuItem, quantity: number, combos?: { comboId: number, menuId: number, menu?: any }[] }[]>([]);
+  const [cart, setCart] = useState<{ entryId: string, item: MenuItem, quantity: number, combos?: { comboId: number, menuId: number, menu?: any }[], rowId?: string | number }[]>([]);
   const [showCart, setShowCart] = useState(false);
   const [menuData, setMenuData] = useState<MenuResponse | null>(null);
   const [categories, setCategories] = useState<{id: number | string, name?: string, label?: string}[]>([]);
@@ -41,7 +40,34 @@ export default function OrdersScreen() {
   const [orderPlacedModalVisible, setOrderPlacedModalVisible] = useState(false);
   const [placedOrderSummary, setPlacedOrderSummary] = useState<any | null>(null);
 
-  const router = useRouter();
+  // New: running orders drawer state
+  const [ongoingOpen, setOngoingOpen] = useState(false);
+  const [runningOrders, setRunningOrders] = useState<Array<any>>([]);
+  const [runningLoading, setRunningLoading] = useState(false);
+  const [runningError, setRunningError] = useState<string | null>(null);
+
+  // New: cancel modal state
+  const [cancelModalVisible, setCancelModalVisible] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelingOrderId, setCancelingOrderId] = useState<number | null>(null);
+  const [cancelProcessing, setCancelProcessing] = useState(false);
+
+  // New: finalize modal state
+  const [finalizeModalVisible, setFinalizeModalVisible] = useState(false);
+  const [finalizeOrderId, setFinalizeOrderId] = useState<number | null>(null);
+  const [finalizeOrderTotal, setFinalizeOrderTotal] = useState<number>(0);
+  const [paymentMethod, setPaymentMethod] = useState<string>('Cash');
+  const [paidAmount, setPaidAmount] = useState<string>('');
+  const [givenAmount, setGivenAmount] = useState<string>('');
+  const [changeAmount, setChangeAmount] = useState<number | null>(null);
+  const [finalizeProcessing, setFinalizeProcessing] = useState(false);
+
+  // New: payment dropdown state
+  const [paymentDropdownOpen, setPaymentDropdownOpen] = useState(false);
+
+  // New: editing state for running orders
+  const [editingRunningOrderId, setEditingRunningOrderId] = useState<number | null>(null);
+  const [editingRunningOrderExternalId, setEditingRunningOrderExternalId] = useState<string | null>(null);
 
   // Calculate cartTotal so it is available in the component
   const cartTotal = cart.reduce((sum, c) => {
@@ -262,9 +288,266 @@ export default function OrdersScreen() {
     }
   };
 
-  if (loading) return <Text>Loading...</Text>;
-  if (error) return <Text>{error}</Text>;
+  // New: fetch running orders
+  const fetchRunningOrders = async (force = false) => {
+    if (runningLoading && !force) return;
+    setRunningLoading(true);
+    setRunningError(null);
+    try {
+      const res = await orderService.getRunningOrders();
+      if (res && res.success && Array.isArray(res.orders)) {
+        setRunningOrders(res.orders);
+      } else {
+        setRunningOrders([]);
+      }
+    } catch (err: any) {
+      setRunningError(err?.message ?? 'Failed to fetch running orders');
+    } finally {
+      setRunningLoading(false);
+    }
+  };
 
+  // fetch when drawer opens and refresh every 20s while open
+  useEffect(() => {
+    let interval: any = null;
+    if (ongoingOpen) {
+      fetchRunningOrders(true); // initial fetch
+      interval = setInterval(() => fetchRunningOrders(true), 20000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [ongoingOpen]);
+
+  // fetch running orders once when the screen mounts
+  useEffect(() => {
+    fetchRunningOrders(true);
+  }, []);
+
+  // Handler for cancel button in running orders
+  const handleCancelPress = (orderId: number) => {
+    setCancelingOrderId(orderId);
+    setCancelReason('');
+    setCancelModalVisible(true);
+  };
+
+  // helper to format date/time safely
+  const formatDateTime = (iso?: string) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleString();
+  };
+
+  // compute change whenever paid/given change or payment method becomes Free
+	useEffect(() => {
+		const paid = parseFloat(paidAmount || '0') || 0;
+		const given = parseFloat(givenAmount || '0') || 0;
+		if (paymentMethod === 'Free') {
+			// show zero change when Free (order will be finalized with full order total)
+			setChangeAmount(0);
+			return;
+		}
+		const diff = given - paid;
+		// don't display negative change (customer hasn't given enough) — show nothing instead
+		if (isNaN(diff) || diff < 0) {
+			setChangeAmount(null);
+		} else {
+			setChangeAmount(Number(diff.toFixed(2)));
+		}
+	}, [paidAmount, givenAmount, paymentMethod, finalizeOrderTotal]);
+
+	const formatForApiDate = (d = new Date()) => {
+		const pad = (n: number) => String(n).padStart(2, '0');
+		return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+	};
+
+	const handleFinalizePress = (id: number, total?: number) => {
+		setFinalizeOrderId(id);
+		setFinalizeOrderTotal(total ?? 0);
+		setPaymentMethod('Cash');
+		setPaidAmount(total ? String(Number(total).toFixed(2)) : '');
+		setGivenAmount('');
+		setChangeAmount(null);
+		setFinalizeModalVisible(true);
+	};
+
+	const confirmFinalize = async () => {
+		if (!finalizeOrderId) return Alert.alert('Error', 'No order selected for finalize');
+
+		const paid = parseFloat(paidAmount || '0');
+		// If Free, ensure we have an order total to submit
+		if (paymentMethod === 'Free') {
+			if (!finalizeOrderTotal || finalizeOrderTotal <= 0) {
+				return Alert.alert('Error', 'Order total missing for finalize');
+			}
+		} else {
+			if (isNaN(paid) || paid <= 0) {
+				return Alert.alert('Error', 'Please enter a valid paid amount');
+			}
+		}
+
+		setFinalizeProcessing(true);
+		try {
+			const payload = {
+				order_id: finalizeOrderId,
+				payment_method: paymentMethod || 'Cash',
+				// For 'Free' send the order's total as paid_amount so backend accepts finalization
+				paid_amount: paymentMethod === 'Free' ? Number(finalizeOrderTotal.toFixed(2)) : Number(paid.toFixed(2)),
+				given_amount: paymentMethod === 'Free' ? 0 : (givenAmount ? Number(parseFloat(givenAmount).toFixed(2)) : undefined),
+				change_amount: paymentMethod === 'Free' ? 0 : (changeAmount ?? undefined),
+				order_date: formatForApiDate(),
+			};
+			const res = await orderService.finalizeOrder(payload);
+			if (res && res.success) {
+				Alert.alert('Success', res.message ?? 'Order finalized');
+				setFinalizeModalVisible(false);
+				setFinalizeOrderId(null);
+				await fetchRunningOrders(true);
+			} else {
+				Alert.alert('Error', res?.message ?? 'Finalize failed');
+			}
+		} catch (err: any) {
+			Alert.alert('Error', err?.response?.data?.message ?? err?.message ?? 'Failed to finalize order');
+		} finally {
+			setFinalizeProcessing(false);
+		}
+	};
+
+  // helper: try to find the array of order items inside any nested arrays of the server response
+  const extractItemsFromOrder = (order: any) => {
+    const candidates: any[] = [];
+    const visited = new Set();
+    const recurse = (obj: any) => {
+      if (!obj || typeof obj !== 'object' || visited.has(obj)) return;
+      visited.add(obj);
+      if (Array.isArray(obj) && obj.length > 0 && typeof obj[0] === 'object') {
+        candidates.push(obj);
+        obj.forEach(recurse);
+        return;
+      }
+      Object.values(obj).forEach(recurse);
+    };
+    recurse(order);
+    // prefer arrays that look like line-items (qty/recipe_id/price present)
+    for (const arr of candidates) {
+      const sample = arr[0];
+      if (sample && (sample.qty || sample.quantity || sample.recipe_id || sample.menu_id || sample.price)) return arr;
+    }
+    return candidates[0] ?? [];
+  };
+
+  // When user taps "Update" on a running order: load the order and populate local cart for editing
+  const handleEditPress = async (id: number) => {
+    setRunningLoading(true);
+    try {
+      const serverOrder = await orderService.fetchOrderById(id);
+      const items = extractItemsFromOrder(serverOrder);
+      if (!items || items.length === 0) {
+        Alert.alert('Error', 'No items found in order');
+        return;
+      }
+
+      const parsedCart = items.map((it: any, idx: number) => {
+        const menuId = it.recipe_id ?? it.menu_id ?? it.id ?? it.menu?.id ?? `${id}-${idx}`;
+        const name = it.name ?? it.menu?.name ?? it.recipe_name ?? it.item_name ?? 'Item';
+        const price = Number(it.price ?? it.menu?.price ?? it.rate ?? 0) || 0;
+        const qty = Number(it.qty ?? it.quantity ?? 1) || 1;
+        const combos = (it.modifiers || it.options || []).map((m: any, ci: number) => {
+          const mid = m.menu_id ?? m.id ?? m.menu?.id ?? `${menuId}-opt-${ci}`;
+          return { comboId: mid, menuId: mid, menu: { id: mid, name: m.name ?? m.menu?.name ?? 'Option', price: Number(m.price ?? m.menu?.price ?? 0) } };
+        });
+        // preserve server's item row id when present so we can update rows instead of creating new ones
+        const rowId = it.row_id ?? it.rowid ?? it.rowId ?? undefined;
+        return { entryId: `${menuId}-${Date.now()}-${idx}`, item: { id: menuId, name, price }, quantity: qty, combos: combos.length ? combos : undefined, rowId };
+      });
+
+      // set basic order meta if present
+      setOrderDetails(prev => ({
+        ...prev,
+        orderType: (serverOrder.type ?? serverOrder.order_type)?.toString().toLowerCase().includes('take') ? 'Take away' : prev.orderType,
+        tableId: serverOrder.table_id ? String(serverOrder.table_id) : prev.tableId,
+        customer: serverOrder.customer ?? serverOrder.customer_name ?? prev.customer,
+        room: serverOrder.room ?? prev.room,
+        stewardId: serverOrder.steward_id ? String(serverOrder.steward_id) : prev.stewardId,
+      }));
+
+      // preserve server-exposed order identifier (often a string like "ORD-1001")
+      setEditingRunningOrderExternalId(serverOrder.order_id ? String(serverOrder.order_id) : String(id));
+
+      setCart(parsedCart);
+      setEditingRunningOrderExternalId(serverOrder.order_id ? String(serverOrder.order_id) : String(id));
+
+      // prefer server-provided numeric internal id when available (avoids using the wrong id)
+      const numericServerId = Number(serverOrder.id ?? serverOrder.order_internal_id ?? id);
+      setEditingRunningOrderId(Number.isFinite(numericServerId) ? numericServerId : Number(id));
+      setCart(parsedCart);
+
+      setShowCart(true);
+      // prefer server-provided flag for service charge when available
+      setEnableServiceCharge(Boolean(serverOrder.service_charge && Number(serverOrder.service_charge) > 0));
+      setOngoingOpen(false);
+
+      // debug: log what we loaded
+      console.log('[POS/UI] Loaded order for edit:', { requestedId: id, serverId: serverOrder.id, order_id: serverOrder.order_id });
+    } catch (err: any) {
+      Alert.alert('Error', err?.message ?? 'Failed to load order');
+    } finally {
+      setRunningLoading(false);
+    }
+  };
+
+  const confirmUpdateOrder = async () => {
+    if (!editingRunningOrderId) return Alert.alert('Error', 'No order selected for update');
+    if (cart.length === 0) return Alert.alert('Error', 'Cart is empty');
+
+    try {
+      const payload: any = {
+        // use numeric internal order id to avoid accidental "create" on the backend
+        order_id: editingRunningOrderId,
+        order_type: orderDetails.orderType || 'Dine In',
+        customer: orderDetails.customer ?? '',
+        room: orderDetails.room ?? '',
+        table_id: orderDetails.tableId ?? '',
+        steward_id: orderDetails.stewardId ?? '',
+        restaurant_id: 2, // keep same default used elsewhere
+        service_charge: enableServiceCharge ? Number((cartTotal * 0.1).toFixed(2)) : 0,
+        cart: cart.map(c => ({
+          recipe_id: c.item.id,
+          name: c.item.name,
+          qty: c.quantity,
+          price: c.item.price,
+          total: (Number(c.item.price) || 0) * c.quantity,
+          // reuse existing row id when present; otherwise send "new" to create a new row
+          row_id: c.rowId ?? "new",
+          modifiers: c.combos ? c.combos.map((sc: any) => ({ menu_id: sc.menuId, name: sc.menu?.name || 'Option' })) : [],
+        })),
+      };
+
+      // include external order identifier for trace/debug (backend will ignore unknown fields if unsupported)
+      if (editingRunningOrderExternalId) payload.external_order_id = editingRunningOrderExternalId;
+
+      // debug: inspect payload to ensure order_id is numeric and rows are correct
+      console.log('[POS/UI] Upsert payload for update:', JSON.stringify(payload, null, 2));
+
+      const res = await orderService.upsertOrder(payload);
+      if (res && res.success) {
+        Alert.alert('Success', res.message ?? 'Order updated');
+        setEditingRunningOrderId(null);
+        setEditingRunningOrderExternalId(null);
+        setCart([]);
+        setShowCart(false);
+        setShowOrderModal(false);
+        await fetchRunningOrders(true);
+      } else {
+        Alert.alert('Error', res?.message ?? 'Update failed');
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err?.response?.data?.message ?? err?.message ?? 'Failed to update order');
+    }
+  };
+
+  // Compute filtered menu items once and make available to renderMenuItems
   const filteredMenuItems = menuItems.filter(item => {
     if (selectedCategoryId) {
       const catList = menuData?.recipeCategoriesWithMenus?.[String(selectedCategoryId)];
@@ -279,6 +562,10 @@ export default function OrdersScreen() {
     }
     return true;
   });
+  
+  // Show simple loading/error early guards to avoid rendering the main UI prematurely
+  if (loading) return <Text>Loading...</Text>;
+  if (error) return <Text>{error}</Text>;
 
   const renderMenuItems = () => {
     const cartTotal = cart.reduce((sum, c) => {
@@ -309,7 +596,16 @@ export default function OrdersScreen() {
           </View>
 
           <View style={styles.countBadge}>
-            <Text style={styles.countBadgeText}>{filteredMenuItems.length} items</Text>
+            <TouchableOpacity
+              style={styles.ongoingToggle}
+              onPress={() => { setOngoingOpen(true); fetchRunningOrders(true); }}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.ongoingToggleText}>Running</Text>
+              <View style={styles.ongoingBadge}>
+                <Text style={styles.ongoingBadgeText}>{runningOrders.length}</Text>
+              </View>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -430,11 +726,136 @@ export default function OrdersScreen() {
     );
   };
 
+  const toggleCart = () => setShowCart(prev => !prev);
+
+  async function confirmCancel(): Promise<void> {
+    if (!cancelingOrderId) {
+      Alert.alert('Error', 'No order selected to cancel');
+      return;
+    }
+    setCancelProcessing(true);
+    try {
+      const res = await orderService.cancelOrder({ order_id: cancelingOrderId, reason: cancelReason });
+      if (res && res.success) {
+        Alert.alert('Success', res.message ?? `Order ${cancelingOrderId} cancelled`);
+      } else {
+        Alert.alert('Error', res?.message ?? 'Failed to cancel order');
+      }
+      setCancelModalVisible(false);
+      setCancelingOrderId(null);
+      setCancelReason('');
+      await fetchRunningOrders(true);
+    } catch (err: any) {
+      Alert.alert('Error', err?.response?.data?.message ?? err?.message ?? 'Failed to cancel order');
+    } finally {
+      setCancelProcessing(false);
+    }
+  }
+
   return (
     <View style={styles.container}>
+      {/* header title/back removed per request */}
+
       {renderMenuItems()}
 
-      {/* Cart display (single location) */}
+      {/* running orders overlay and drawer */}
+      {ongoingOpen && (
+        <>
+          <TouchableOpacity style={styles.ongoingOverlay} activeOpacity={1} onPress={() => setOngoingOpen(false)} />
+          <View style={[styles.ongoingDrawer, styles.ongoingDrawerOpen]}>
+            <View style={styles.ongoingHeader}>
+              <Text style={styles.ongoingTitle}>Running Orders</Text>
+              
+            </View>
+
+            <ScrollView contentContainerStyle={{ padding: 16 }}>
+              {runningLoading && <Text>Loading...</Text>}
+              {runningError && <Text style={{ color: 'red' }}>{runningError}</Text>}
+              {!runningLoading && runningOrders.length === 0 && <Text style={{ color: '#6B7280' }}>No running orders</Text>}
+
+              {runningOrders.map((o: any) => (
+                <View key={String(o.id)} style={styles.ongoingOrderCard}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <Text style={{ fontWeight: '800' }}>#{o.id}</Text>
+                    <Text style={{ color: '#FF6B6B', fontWeight: '800' }}>Rs {Number(o.total).toFixed(2)}</Text>
+                  </View>
+
+                  {/* created_at */}
+                  {o.created_at ? <Text style={{ color: '#6B7280', marginBottom: 6 }}>{formatDateTime(o.created_at)}</Text> : null}
+
+                  {/* only show attributes when present */}
+                  {o.customer_name ? <Text style={{ marginBottom: 4 }}>Customer: {o.customer_name}</Text> : null}
+                  {o.room_number ? <Text style={{ marginBottom: 4 }}>Room: {o.room_number}</Text> : null}
+                  {o.table_id ? <Text style={{ marginBottom: 4 }}>Table: {o.table_id}</Text> : null}
+                  {o.steward_name ? <Text style={{ marginBottom: 4 }}>Steward: {o.steward_name}</Text> : null}
+
+                  {/* is_ready badge */}
+                  {typeof o.is_ready !== 'undefined' && o.is_ready !== null ? (
+                    <View style={{ marginTop: 8, alignSelf: 'flex-start' }}>
+                      <View style={[styles.ongoingStatusBadge, { backgroundColor: o.is_ready ? '#D1FAE5' : '#FEF3C7' }]}>
+                        <Text style={{ color: o.is_ready ? '#065F46' : '#92400E', fontWeight: '700' }}>
+                          {o.is_ready ? 'Ready' : 'Not Ready'}
+                        </Text>
+                      </View>
+                    </View>
+                  ) : null}
+
+                  {/* UI-only action buttons (Cancel now opens modal and calls service) */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, gap: 8 }}>
+                    <TouchableOpacity
+                      style={[styles.ongoingActionBtn, { borderColor: '#FCA5A5', backgroundColor: '#FFF1F2' }]}
+                      onPress={() => handleCancelPress(o.id)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.ongoingActionText, { color: '#B91C1C' }]}>Cancel</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.ongoingActionBtn, { borderColor: '#FBBF24', backgroundColor: '#FFFBEB' }]}
+                      onPress={() => handleEditPress(o.id)} // NOW loads the order into cart for editing
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.ongoingActionText, { color: '#92400E' }]}>Update</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.ongoingActionBtn, { borderColor: '#86EFAC', backgroundColor: '#ECFDF5' }]}
+                      onPress={() => handleFinalizePress(o.id, o.total)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.ongoingActionText, { color: '#065F46' }]}>Finalize</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+
+            {/* actions row: refresh */}
+            <View style={{ padding: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6', flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity
+                style={[styles.ongoingActionBtn, styles.refreshBtn]}
+                onPress={() => fetchRunningOrders(true)}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Refresh running orders"
+              >
+                <Text style={[styles.ongoingActionText, styles.refreshBtnText]}>Refresh</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.ongoingActionBtn, styles.closeBtn]}
+                onPress={() => setOngoingOpen(false)}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Close running orders"
+              >
+                <Text style={[styles.ongoingActionText, styles.closeBtnText]}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </>
+      )}
+
+      {/* Cart panel — restored previous inline cart with Place Order button */}
       {showCart && (
         <View style={styles.cartContainer}>
           <View style={styles.cartHeader}>
@@ -442,12 +863,11 @@ export default function OrdersScreen() {
               <Text style={styles.cartTitle}>Cart</Text>
               <Text style={styles.cartSubtitle}>{cart.length} {cart.length === 1 ? 'item' : 'items'} • Rs {cartTotal.toFixed(2)}</Text>
             </View>
-            <TouchableOpacity onPress={() => setShowCart(false)}>
+            <TouchableOpacity onPress={toggleCart}>
               <Text style={styles.hideCartText}>Hide</Text>
             </TouchableOpacity>
           </View>
-          
-          {/* Scrollable cart items with fixed height */}
+
           <View style={styles.cartItemsWrapper}>
             <FlatList
               data={cart}
@@ -487,9 +907,12 @@ export default function OrdersScreen() {
             />
           </View>
 
-          {/* Place Order Button - Always visible at bottom */}
-          <TouchableOpacity style={styles.placeOrderButton} onPress={placeOrder}>
-            <Text style={styles.placeOrderText}>Place Order</Text>
+          <TouchableOpacity
+            style={styles.placeOrderButton}
+            // when editing a running order, open the Order Details modal (user will confirm with Update)
+            onPress={editingRunningOrderId ? () => setShowOrderModal(true) : placeOrder}
+          >
+            <Text style={styles.placeOrderText}>{editingRunningOrderId ? 'Update Order' : 'Place Order'}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -500,7 +923,7 @@ export default function OrdersScreen() {
           <View style={styles.modalOverlay}>
             <ScrollView contentContainerStyle={styles.scrollContent}>
               <View style={styles.modalContent}>
-                <Text style={styles.modalTitle}>Order Details</Text>
+                <Text style={styles.modalTitle}>{editingRunningOrderId ? 'Update Order' : 'Order Details'}</Text>
 
                 <Text style={styles.label}>Order Type *</Text>
                 <View style={styles.segmentedControl}>
@@ -588,9 +1011,9 @@ export default function OrdersScreen() {
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.submitButton}
-                    onPress={submitOrder}
+                    onPress={editingRunningOrderId ? confirmUpdateOrder : submitOrder}
                   >
-                    <Text style={styles.submitText}>Submit Order</Text>
+                    <Text style={styles.submitText}>{editingRunningOrderId ? 'Update Order' : 'Submit Order'}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -694,6 +1117,142 @@ export default function OrdersScreen() {
            </TouchableWithoutFeedback>
          </Modal>
        )}
+
+       {/* Cancel Reason Modal */}
+       <Modal visible={cancelModalVisible} animationType="fade" transparent>
+         <TouchableWithoutFeedback onPress={() => !cancelProcessing && setCancelModalVisible(false)}>
+           <View style={styles.modalOverlay}>
+             <TouchableWithoutFeedback>
+               <View style={[styles.modalContent, { width: '90%', maxWidth: 520 }]}>
+                 <Text style={{ fontSize: 16, fontWeight: '800', marginBottom: 8 }}>Cancel Order #{cancelingOrderId}</Text>
+                 <TextInput
+                   style={[styles.input, { minHeight: 80, textAlignVertical: 'top' }]}
+                   placeholder="Reason (optional)"
+                   placeholderTextColor="#9CA3AF"
+                   value={cancelReason}
+                   onChangeText={setCancelReason}
+                   editable={!cancelProcessing}
+                   multiline
+                 />
+                 <View style={{ flexDirection: 'row', gap: 12 }}>
+                   <TouchableOpacity
+                     style={styles.cancelButtonAlt}
+                     onPress={() => {
+                       if (!cancelProcessing) {
+                         setCancelModalVisible(false);
+                         setCancelingOrderId(null);
+                         setCancelReason('');
+                       }
+                     }}
+                     disabled={cancelProcessing}
+                   >
+                     <Text style={styles.cancelTextAlt}>Close</Text>
+                   </TouchableOpacity>
+                   <TouchableOpacity style={styles.submitButtonAlt} onPress={confirmCancel} disabled={cancelProcessing}>
+                     <Text style={styles.submitTextAlt}>{cancelProcessing ? 'Processing...' : 'Confirm Cancel'}</Text>
+                   </TouchableOpacity>
+                 </View>
+               </View>
+             </TouchableWithoutFeedback>
+           </View>
+         </TouchableWithoutFeedback>
+       </Modal>
+
+       {/* Finalize Modal */}
+			<Modal visible={finalizeModalVisible} animationType="fade" transparent>
+				<TouchableWithoutFeedback onPress={() => !finalizeProcessing && setFinalizeModalVisible(false)}>
+					<View style={styles.modalOverlay}>
+						<TouchableWithoutFeedback>
+							<View style={[styles.modalContent, { width: '90%', maxWidth: 520 }]}>
+								<Text style={{ fontSize: 16, fontWeight: '800', marginBottom: 8 }}>Finalize Order #{finalizeOrderId}</Text>
+
+								<Text style={{ marginBottom: 6, fontWeight: '700' }}>Payment method</Text>
+								{/* Dropdown control */}
+								<View>
+									<TouchableOpacity
+										style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+										onPress={() => setPaymentDropdownOpen(p => !p)}
+										activeOpacity={0.85}
+									>
+										<Text>{paymentMethod}</Text>
+										<Text style={{ color: '#6B7280' }}>{paymentDropdownOpen ? '▲' : '▼'}</Text>
+									</TouchableOpacity>
+
+									{paymentDropdownOpen && (
+										<View style={styles.paymentDropdown}>
+											{['Cash', 'Card', 'Free'].map(pm => (
+												<TouchableOpacity
+													key={pm}
+													style={styles.paymentDropdownOption}
+													onPress={() => { setPaymentMethod(pm); setPaymentDropdownOpen(false); }}
+													activeOpacity={0.85}
+												>
+													<Text style={paymentMethod === pm ? styles.paymentMethodTextActive : styles.paymentMethodText}>
+														{pm}
+													</Text>
+												</TouchableOpacity>
+											))}
+										</View>
+									)}
+								</View>
+
+								<Text style={{ marginBottom: 6, fontWeight: '700' }}>Paid amount</Text>
+								<TextInput
+									style={[styles.input, paymentMethod === 'Free' && { backgroundColor: '#F3F4F6' }]}
+									value={paidAmount}
+									onChangeText={setPaidAmount}
+									placeholder="e.g., 1785.00"
+									editable={paymentMethod !== 'Free'}
+									keyboardType="numeric"
+								/>
+
+								<Text style={{ marginBottom: 6, fontWeight: '700' }}>Given amount (optional)</Text>
+								<TextInput
+									style={[styles.input, paymentMethod === 'Free' && { backgroundColor: '#F3F4F6' }]}
+									value={givenAmount}
+									onChangeText={setGivenAmount}
+									placeholder=""
+									editable={paymentMethod !== 'Free'}
+									keyboardType="numeric"
+								/>
+
+								{changeAmount !== null && (
+									<Text style={{ marginBottom: 8 }}>Change: Rs {changeAmount.toFixed(2)}</Text>
+								)}
+
+								<Text style={{ marginBottom: 8, color: '#6B7280' }}>Order date: {formatForApiDate()}</Text>
+
+								<View style={{ flexDirection: 'row', gap: 12 }}>
+									<TouchableOpacity
+										style={styles.cancelButtonAlt}
+										onPress={() => {
+											if (!finalizeProcessing) {
+												setFinalizeModalVisible(false);
+												setFinalizeOrderId(null);
+												setPaymentMethod('Cash');
+												setPaidAmount('');
+												setGivenAmount('');
+												setChangeAmount(null);
+											}
+										}}
+										disabled={finalizeProcessing}
+									>
+										<Text style={styles.cancelTextAlt}>Close</Text>
+									</TouchableOpacity>
+
+									<TouchableOpacity
+										style={styles.submitButtonAlt}
+										onPress={confirmFinalize}
+										disabled={finalizeProcessing}
+									>
+										<Text style={styles.submitTextAlt}>{finalizeProcessing ? 'Processing...' : 'Confirm Finalize'}</Text>
+									</TouchableOpacity>
+								</View>
+							</View>
+						</TouchableWithoutFeedback>
+					</View>
+				</TouchableWithoutFeedback>
+			</Modal>
     </View>
   );
 }
@@ -702,6 +1261,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, padding: 10, backgroundColor: '#FFFFFF' },
   title: { fontSize: 20, fontWeight: 'bold', marginBottom: 10, color: '#111827' },
   list: { paddingBottom: 24 },
+  cartDivider: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
+    marginVertical: 6,
+  },
   sectionHeading: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -914,7 +1478,10 @@ const styles = StyleSheet.create({
   cartSummaryTotal: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
   cartSummaryCta: { color: '#FFFFFF', fontWeight: '800', fontSize: 15 },
   cartContainer: {
-    marginTop: 20,
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 100, // above the summary bar
     padding: 16,
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
@@ -922,37 +1489,29 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.04,
     shadowRadius: 12,
-    elevation: 2,
+    elevation: 12,
     borderWidth: 1,
     borderColor: '#F3F4F6',
-    maxHeight: height * 0.7, // Limit cart height to 70% of screen
+    maxHeight: height * 0.6, // Limit cart height to 60% of screen
+    zIndex: 1000,
   },
-  cartItemsWrapper: {
-    maxHeight: height * 0.45, // Max height for scrollable items area
-    marginBottom: 12,
-  },
-  cartHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  cartTitle: { fontSize: 20, fontWeight: '700', color: '#111827' },
-  cartSubtitle: { color: '#6B7280', marginTop: 4 },
-  hideCartText: { color: '#FF6B6B', fontWeight: '700' },
-  cartDivider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 12 },
-  cartItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
-  cartItemName: { fontWeight: '600', color: '#111827' },
-  cartItemMeta: { color: '#6B7280', fontSize: 12, marginTop: 2 },
-  removeText: { color: '#FF6B6B', marginLeft: 12, fontWeight: '600' },
-  placeOrderButton: {
+  fabCart: {
+    position: 'absolute',
+    right: 20,
+    bottom: 28,
     backgroundColor: '#FF6B6B',
-    padding: 14,
-    borderRadius: 14,
-    alignItems: 'center',
-    marginTop: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
     shadowColor: '#FF6B6B',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.12,
     shadowRadius: 12,
-    elevation: 4,
+    elevation: 6,
+    zIndex: 1100,
   },
-  placeOrderText: { color: '#FFFFFF', fontWeight: '800', fontSize: 16 },
+  fabCartText: { color: '#fff', fontWeight: '800' },
+
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)' },
   keyboardAvoid: { flex: 1, justifyContent: 'center' },
   scrollContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
@@ -1121,6 +1680,7 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
     backgroundColor: '#fff',
     zIndex: 950,
+   
     shadowColor: '#000',
     shadowOffset: { width: -6, height: 0 },
     shadowOpacity: 0.12,
@@ -1137,11 +1697,16 @@ const styles = StyleSheet.create({
   ongoingHeader: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   ongoingTitle: { fontWeight: '800', fontSize: 16 },
 
-  ongoingOrderCard: { borderWidth: 1, borderColor: '#F3F4F6', borderRadius: 10, padding: 12, marginBottom: 12, backgroundColor: '#FFFFFF' },
+  ongoingOrderCard: { borderWidth: 1, borderColor: '#F3F4F6', borderRadius: 10, padding: 12, marginBottom:  12, backgroundColor: '#FFFFFF' },
   ongoingStatusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, backgroundColor: '#FEF3C7', alignItems: 'center' },
   ongoingActionBtn: { flex: 1, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center' },
   ongoingActionText: { color: '#111827', fontWeight: '700' },
+  refreshBtn: { backgroundColor: '#111827', borderColor: '#111827' },
+  refreshBtnText: { color: '#FFFFFF' },
+  closeBtn: { backgroundColor: '#FF6B6B', borderColor: '#FF6B6B' },
+  closeBtnText: { color: '#FFFFFF' },
   label: { marginTop: 12, marginBottom: 6, fontWeight: '700', color: '#111827' },
+ 
   summaryText: { marginVertical: 4, color: '#111827' },
   summarySubtitle: { marginTop: 12, fontWeight: '700', color: '#111827' },
   priceSummaryContainer: {
@@ -1190,4 +1755,94 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#FF6B6B',
   },
+  cartHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  cartTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  cartSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  hideCartText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FF6B6B',
+  },
+  cartItemsWrapper: {
+    maxHeight: height * 0.5,
+    marginBottom: 16,
+  },
+  cartItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 12,
+  },
+  cartItemName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  cartItemMeta: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  removeText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FF6B6B',
+  },
+  placeOrderButton: {
+    backgroundColor: '#FF6B6B',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#FF6B6B',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  placeOrderText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 16,
+  },
+
+  // small dropdown styles
+  paymentDropdown: {
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    marginTop: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  paymentDropdownOption: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  paymentMethodTextActive: { color: '#FF6B6B', fontWeight: '800' },
+  paymentMethodText: { color: '#111827', fontWeight: '700' },
 });

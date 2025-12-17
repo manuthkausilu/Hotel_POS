@@ -4,6 +4,76 @@ import type { Order, CreateOrderRequest, CreateOrderResponse, CartItem } from '.
 import type { MenuItem } from '../types/menu';
 import { apiClient } from './apiClient';
 
+// Add types for the running orders endpoint
+type RunningOrder = {
+  id: number;
+  total: number;
+  created_at: string;
+  customer_name: string;
+  room_number: string | null;
+  table_id: string | null;
+  steward_name: string | null;
+  item_count: number;
+  is_ready: boolean;
+};
+
+type GetRunningOrdersResponse = {
+  success: boolean;
+  orders: RunningOrder[];
+};
+
+// New: types for finalize and cancel endpoints
+type FinalizeOrderRequest = {
+  order_id: number | string;
+  payment_method: string;
+  paid_amount: number;
+  given_amount?: number;
+  change_amount?: number;
+  order_date?: string;
+};
+
+type FinalizeOrderResponse = {
+  success: boolean;
+  message: string;
+  data: {
+    order_id: number;
+    total_amount: number;
+    paid_amount: number;
+    payment_method: string;
+    finalize_date: string;
+  };
+};
+
+type CancelOrderRequest = {
+  order_id: number | string;
+  reason?: string;
+};
+
+type CancelOrderResponse = {
+  success: boolean;
+  message: string;
+  data: {
+    order_id: number;
+    order_status: string;
+    cancellation_reason?: string;
+  };
+};
+
+// New: type for single order response
+type SingleOrder = {
+  id: number;
+  order_id: string;
+  customer_name: string;
+  status: string;
+  type: string;
+  created_at: string;
+  order_list_detail?: any[];
+  kot_lists?: any[];
+  [key: string]: any;
+};
+
+type GetSingleOrderResponse = SingleOrder;
+
 export class OrderService {
   private orders: Map<string, Order> = new Map();
   private restaurantId: number = 2;
@@ -164,6 +234,89 @@ export class OrderService {
     return res.data;
   }
 
+  // New: fetch current running orders from API
+  async getRunningOrders(config?: AxiosRequestConfig): Promise<GetRunningOrdersResponse> {
+    try {
+      const res = await this.client.get<GetRunningOrdersResponse>('/pos/running_orders', config);
+      console.log('[POS/Service] GetRunningOrders response:', JSON.stringify(res.data, null, 2));
+      return res.data;
+    } catch (error) {
+      console.error('[POS/Service] GetRunningOrders error:', error);
+      throw error;
+    }
+  }
+
+  // New: finalize an order
+  async finalizeOrder(payload: FinalizeOrderRequest, config?: AxiosRequestConfig): Promise<FinalizeOrderResponse> {
+    try {
+      // Log finalize request payload for debugging
+      console.log('═══════════════════════════════════════');
+      console.log('[POS/Service] FINALIZE ORDER REQUEST');
+      console.log('═══════════════════════════════════════');
+      console.log(JSON.stringify(payload, null, 2));
+      console.log('═══════════════════════════════════════');
+      const res = await this.client.post<FinalizeOrderResponse>('/pos/orders/finalize', payload, config);
+      console.log('[POS/Service] FinalizeOrder response:', JSON.stringify(res.data, null, 2));
+      return res.data;
+    } catch (error) {
+      console.error('[POS/Service] FinalizeOrder error:', error);
+      throw error;
+    }
+  }
+
+  // New: cancel an order
+  async cancelOrder(payload: CancelOrderRequest, config?: AxiosRequestConfig): Promise<CancelOrderResponse> {
+    try {
+      const res = await this.client.post<CancelOrderResponse>('/pos/orders/cancel', payload, config);
+      console.log('[POS/Service] CancelOrder response:', JSON.stringify(res.data, null, 2));
+      return res.data;
+    } catch (error) {
+      console.error('[POS/Service] CancelOrder error:', error);
+      throw error;
+    }
+  }
+
+  // New: fetch a single order by ID
+  async fetchOrderById(id: number | string, config?: AxiosRequestConfig): Promise<GetSingleOrderResponse> {
+    try {
+      const res = await this.client.get<GetSingleOrderResponse>(`/pos/orders/${id}`, config);
+      console.log('[POS/Service] FetchOrderById response:', JSON.stringify(res.data, null, 2));
+      return res.data;
+    } catch (error) {
+      console.error('[POS/Service] FetchOrderById error:', error);
+      throw error;
+    }
+  }
+
+  // New: create or update order using same endpoint (/pos/orders)
+  async upsertOrder(payload: CreateOrderRequest & { order_id: number | string }, config?: AxiosRequestConfig): Promise<CreateOrderResponse> {
+    try {
+      console.log('[POS/Service] UPSERT ORDER REQUEST:', JSON.stringify(payload, null, 2));
+
+      // If we have a numeric internal id, try a direct PUT first (less chance of being treated as a create)
+      const numericId = Number(payload.order_id);
+      if (Number.isFinite(numericId) && numericId > 0) {
+        try {
+          console.log(`[POS/Service] Attempting PUT /pos/orders/${numericId}`);
+          const putRes = await this.client.put<CreateOrderResponse>(`/pos/orders/${numericId}`, payload, config);
+          console.log('[POS/Service] Upsert (PUT) response:', JSON.stringify(putRes.data, null, 2));
+          return putRes.data;
+        } catch (putErr) {
+          // fallback to POST if PUT is not supported or fails
+          console.warn('[POS/Service] PUT failed, falling back to POST:', putErr);
+        }
+      }
+
+      // fallback: POST to /pos/orders
+      const res = await this.client.post<CreateOrderResponse>('/pos/orders', payload, config);
+      console.log('[POS/Service] Upsert (POST) response:', JSON.stringify(res.data, null, 2));
+      return res.data;
+    } catch (error) {
+      console.error('[POS/Service] UpsertOrder error:', error);
+      throw error;
+    }
+  }
+
   getAllOrders(): Order[] {
     return Array.from(this.orders.values());
   }
@@ -176,4 +329,11 @@ export const getOrder = (orderId: string) => orderService.getOrder(orderId);
 export const addItemToOrder = (orderId: string, menuItem: MenuItem, quantity?: number, notes?: string) => orderService.addItemToOrder(orderId, menuItem, quantity, notes);
 export const removeItemFromOrder = (orderId: string, itemId: number) => orderService.removeItemFromOrder(orderId, itemId);
 export const submitOrder = (orderId: string, orderData: any, config?: AxiosRequestConfig) => orderService.submitOrder(orderId, orderData, config);
+export const getRunningOrders = (config?: AxiosRequestConfig) => orderService.getRunningOrders(config);
+export const finalizeOrder = (payload: FinalizeOrderRequest, config?: AxiosRequestConfig) => orderService.finalizeOrder(payload, config);
+export const cancelOrder = (payload: CancelOrderRequest, config?: AxiosRequestConfig) => orderService.cancelOrder(payload, config);
 export const getAllOrders = () => orderService.getAllOrders();
+// New export wrapper
+export const fetchOrderById = (id: number | string, config?: AxiosRequestConfig) => orderService.fetchOrderById(id, config);
+// New export wrapper for upsert
+export const upsertOrder = (payload: any, config?: AxiosRequestConfig) => orderService.upsertOrder(payload, config);

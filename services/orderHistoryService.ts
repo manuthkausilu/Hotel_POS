@@ -1,7 +1,6 @@
 import { apiClient } from './apiClient';
 
 export type Order = {
-  [x: string]: Order;
   id: number;
   order_id?: string;
   customer_name?: string;
