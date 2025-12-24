@@ -1,9 +1,13 @@
 // OrdersScreen: displays menu items and cart UI only.
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, Dimensions, Alert, Modal, TextInput, ScrollView, TouchableWithoutFeedback, Keyboard, Switch } from 'react-native';
 import { fetchMenuData, fetchMenuItemByIdEndpoint } from '../../../services/menuService';
 import { orderService } from '../../../services/orderService';
+import { getStewards, Steward, formatStewardName } from '../../../services/staffService';
+import { getCustomers, Customer, formatCustomerName, getCustomerRooms, type RoomItem } from '../../../services/customerService';
+import { getTables, type Table } from '../../../services/tableService'; // <-- add
 import type { MenuItem, MenuResponse } from '../../../types/menu';
+import { GestureResponderEvent } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
 const imageBase = 'https://app.trackerstay.com/storage/';
@@ -69,6 +73,30 @@ export default function OrdersScreen() {
   const [editingRunningOrderId, setEditingRunningOrderId] = useState<number | null>(null);
   const [editingRunningOrderExternalId, setEditingRunningOrderExternalId] = useState<string | null>(null);
 
+  // New: stewards state
+  const [stewards, setStewards] = useState<Steward[]>([]);
+  const [stewardsLoading, setStewardsLoading] = useState(false);
+  const [stewardsError, setStewardsError] = useState<string | null>(null);
+  const [stewardDropdownOpen, setStewardDropdownOpen] = useState(false);
+
+  // New: customers state (for order submit dropdown)
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customersLoading, setCustomersLoading] = useState(false);
+  const [customersError, setCustomersError] = useState<string | null>(null);
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
+
+  // New: tables state (for order submit dropdown)
+  const [tables, setTables] = useState<Table[]>([]);
+  const [tablesLoading, setTablesLoading] = useState(false);
+  const [tablesError, setTablesError] = useState<string | null>(null);
+  const [tableDropdownOpen, setTableDropdownOpen] = useState(false);
+
+  // New: rooms state (based on selected customer / reservation)
+  const [customerRooms, setCustomerRooms] = useState<RoomItem[]>([]);
+  const [roomsLoading, setRoomsLoading] = useState(false);
+  const [roomsError, setRoomsError] = useState<string | null>(null);
+  const [roomDropdownOpen, setRoomDropdownOpen] = useState(false);
+
   // Calculate cartTotal so it is available in the component
   const cartTotal = cart.reduce((sum, c) => {
     const base = Number(c.item.price) || 0;
@@ -101,6 +129,118 @@ export default function OrdersScreen() {
     };
     loadMenuData();
   }, []);
+
+  // fetch stewards on mount
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      setStewardsLoading(true);
+      setStewardsError(null);
+      try {
+        const s = await getStewards();
+        if (!mounted) return;
+        setStewards(s || []);
+      } catch (err: any) {
+        if (!mounted) return;
+        setStewardsError(err?.message ?? 'Failed to load stewards');
+      } finally {
+        if (!mounted) return;
+        setStewardsLoading(false);
+      }
+    };
+    load();
+    return () => { mounted = false; };
+  }, []);
+
+  // fetch customers on mount
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      setCustomersLoading(true);
+      setCustomersError(null);
+      try {
+        const list = await getCustomers();
+        if (!mounted) return;
+        setCustomers(list || []);
+      } catch (err: any) {
+        if (!mounted) return;
+        setCustomersError(err?.message ?? 'Failed to load customers');
+      } finally {
+        if (!mounted) return;
+        setCustomersLoading(false);
+      }
+    };
+    load();
+    return () => { mounted = false; };
+  }, []);
+
+  // fetch tables on mount
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      setTablesLoading(true);
+      setTablesError(null);
+      try {
+        const list = await getTables();
+        if (!mounted) return;
+        setTables(list || []);
+      } catch (err: any) {
+        if (!mounted) return;
+        setTablesError(err?.message ?? 'Failed to load tables');
+      } finally {
+        if (!mounted) return;
+        setTablesLoading(false);
+      }
+    };
+    load();
+    return () => { mounted = false; };
+  }, []);
+
+  // fetch rooms whenever selected customer changes (reservation_id = customer.id)
+  useEffect(() => {
+    let mounted = true;
+    const selectedCustomerId = orderDetails.customer;
+
+    const loadRooms = async () => {
+      // Walk-in: clear
+      if (!selectedCustomerId) {
+        setCustomerRooms([]);
+        setRoomsError(null);
+        setRoomsLoading(false);
+        setRoomDropdownOpen(false);
+        return;
+      }
+
+      setRoomsLoading(true);
+      setRoomsError(null);
+      try {
+        const rooms = await getCustomerRooms(selectedCustomerId);
+        if (!mounted) return;
+
+        // avoid stale set if customer changed mid-request
+        if (selectedCustomerId !== orderDetails.customer) return;
+
+        setCustomerRooms(rooms || []);
+        // if current selected room not in list, clear it
+        setOrderDetails(prev => {
+          if (!prev.room) return prev;
+          const exists = (rooms || []).some(r => String(r?.room?.id) === String(prev.room));
+          return exists ? prev : { ...prev, room: '' };
+        });
+      } catch (err: any) {
+        if (!mounted) return;
+        setCustomerRooms([]);
+        setRoomsError(err?.message ?? 'Failed to load rooms');
+      } finally {
+        if (!mounted) return;
+        setRoomsLoading(false);
+      }
+    };
+
+    loadRooms();
+    return () => { mounted = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderDetails.customer]);
 
   const findPreferredEntryId = (menuId: number | string) => {
     const plain = cart.find(c => String(c.item.id) === String(menuId) && (!c.combos || c.combos.length === 0));
@@ -217,6 +357,8 @@ export default function OrdersScreen() {
     setShowOrderModal(true);
   };
 
+  const isTakeAway = (orderDetails.orderType || '').toLowerCase().includes('take');
+
   const submitOrder = async () => {
     try {
       if (!orderDetails.orderType || orderDetails.orderType.trim().length === 0) {
@@ -228,7 +370,10 @@ export default function OrdersScreen() {
         return;
       }
 
-      const orderId = orderService.createOrder(orderDetails.tableId);
+      // Don't keep / send table for Take away
+      const effectiveTableId = isTakeAway ? undefined : (orderDetails.tableId || undefined);
+
+      const orderId = orderService.createOrder(effectiveTableId);
 
       cart.forEach(c => {
         const modifiers = (c.combos || []).map(combo => ({
@@ -253,15 +398,23 @@ export default function OrdersScreen() {
       const serviceCharge = enableServiceCharge ? subtotal * 0.1 : 0;
       const totalAmount = subtotal + serviceCharge;
 
+      const selectedCustomer = orderDetails.customer
+        ? customers.find(c => String(c.id) === String(orderDetails.customer))
+        : undefined;
+
+      const selectedRoomItem = orderDetails.room
+        ? customerRooms.find(r => String(r?.room?.id) === String(orderDetails.room))
+        : undefined;
+
       const response = await orderService.submitOrder(orderId, {
         orderType: orderDetails.orderType,
         customer: orderDetails.customer
-          ? { id: orderDetails.customer, name: `Customer ${orderDetails.customer}` }
+          ? { id: orderDetails.customer, name: formatCustomerName(selectedCustomer) || `Customer ${orderDetails.customer}` }
           : undefined,
         room: orderDetails.room
-          ? { id: orderDetails.room, name: `Room ${orderDetails.room}` }
+          ? { id: orderDetails.room, name: selectedRoomItem?.room?.room_number ? `Room ${selectedRoomItem.room.room_number}` : `Room ${orderDetails.room}` }
           : undefined,
-        tableId: orderDetails.tableId || undefined,
+        tableId: effectiveTableId,
         stewardId: orderDetails.stewardId || undefined,
         serviceCharge,
       });
@@ -323,6 +476,23 @@ export default function OrdersScreen() {
   useEffect(() => {
     fetchRunningOrders(true);
   }, []);
+
+  // Exit update mode and reset editing state
+  const exitUpdateMode = useCallback(() => {
+    setEditingRunningOrderId(null);
+    setEditingRunningOrderExternalId(null);
+    setCart([]);
+    setOrderDetails({ tableId: '', orderType: 'Dine In', customer: '', room: '', stewardId: '' });
+    setEnableServiceCharge(true);
+    setShowCart(false);
+  }, []);
+
+  // Auto-exit update mode when cart becomes empty
+  useEffect(() => {
+    if (editingRunningOrderId && cart.length === 0) {
+      exitUpdateMode();
+    }
+  }, [cart.length, editingRunningOrderId, exitUpdateMode]);
 
   // Handler for cancel button in running orders
   const handleCancelPress = (orderId: number) => {
@@ -508,7 +678,7 @@ export default function OrdersScreen() {
         order_type: orderDetails.orderType || 'Dine In',
         customer: orderDetails.customer ?? '',
         room: orderDetails.room ?? '',
-        table_id: orderDetails.tableId ?? '',
+        table_id: isTakeAway ? '' : (orderDetails.tableId ?? ''),
         steward_id: orderDetails.stewardId ?? '',
         restaurant_id: 2, // keep same default used elsewhere
         service_charge: enableServiceCharge ? Number((cartTotal * 0.1).toFixed(2)) : 0,
@@ -728,6 +898,17 @@ export default function OrdersScreen() {
 
   const toggleCart = () => setShowCart(prev => !prev);
 
+  // Clear cart and reset order details
+  const clearCart = () => {
+    setCart([]);
+    setOrderDetails({ tableId: '', orderType: 'Dine In', customer: '', room: '', stewardId: '' });
+    setEnableServiceCharge(true);
+    // if we were editing, exit that mode
+    if (editingRunningOrderId) {
+      exitUpdateMode();
+    }
+  };
+
   async function confirmCancel(): Promise<void> {
     if (!cancelingOrderId) {
       Alert.alert('Error', 'No order selected to cancel');
@@ -751,6 +932,45 @@ export default function OrdersScreen() {
       setCancelProcessing(false);
     }
   }
+
+  // keep existing helper but ensure it uses name+lname
+  function stewardFullName(s?: Steward | null): string {
+    const v = formatStewardName(s ?? undefined);
+    if (v) return v;
+    const alt = [ (s as any)?.first_name, (s as any)?.last_name, (s as any)?.full_name ].filter(Boolean).join(' ').trim();
+    if (alt) return alt;
+    return (s as any)?.id ? `#${(s as any).id}` : '';
+  }
+
+  function customerFullName(o: any): string {
+    if (!o) return '';
+    const first =
+      (o.customer_first_name ?? o.first_name ?? o.customer?.first_name ?? o.customer?.fname ?? '')
+        .toString()
+        .trim();
+    const last =
+      (o.customer_last_name ?? o.last_name ?? o.customer?.last_name ?? o.customer?.lname ?? '')
+        .toString()
+        .trim();
+    const combined = `${first}${last ? ' ' + last : ''}`.trim();
+    if (combined) return combined;
+    // fallbacks (if API only gives a single field)
+    const single =
+      (o.customer_name ?? o.customer?.name ?? o.customer_full_name ?? '').toString().trim();
+    return single;
+  }
+
+  const tableLabel = (t?: Table | null) => {
+    if (!t) return '';
+    const name = (t.table_name ?? '').toString().trim();
+    return name ? name : `Table #${t.id}`;
+  };
+
+  const roomLabel = (ri?: RoomItem | null) => {
+    if (!ri?.room) return '';
+    const num = (ri.room.room_number ?? '').toString().trim();
+    return num ? num : `Room #${ri.room.id}`;
+  };
 
   return (
     <View style={styles.container}>
@@ -784,7 +1004,7 @@ export default function OrdersScreen() {
                   {o.created_at ? <Text style={{ color: '#6B7280', marginBottom: 6 }}>{formatDateTime(o.created_at)}</Text> : null}
 
                   {/* only show attributes when present */}
-                  {o.customer_name ? <Text style={{ marginBottom: 4 }}>Customer: {o.customer_name}</Text> : null}
+                  {o.customer_name ? <Text style={{ marginBottom: 4 }}>Customer: {customerFullName(o)}</Text> : null}
                   {o.room_number ? <Text style={{ marginBottom: 4 }}>Room: {o.room_number}</Text> : null}
                   {o.table_id ? <Text style={{ marginBottom: 4 }}>Table: {o.table_id}</Text> : null}
                   {o.steward_name ? <Text style={{ marginBottom: 4 }}>Steward: {o.steward_name}</Text> : null}
@@ -863,7 +1083,7 @@ export default function OrdersScreen() {
               <Text style={styles.cartTitle}>Cart</Text>
               <Text style={styles.cartSubtitle}>{cart.length} {cart.length === 1 ? 'item' : 'items'} • Rs {cartTotal.toFixed(2)}</Text>
             </View>
-            <TouchableOpacity onPress={toggleCart}>
+            <TouchableOpacity onPress={toggleCart} style={styles.hideCartButton}>
               <Text style={styles.hideCartText}>Hide</Text>
             </TouchableOpacity>
           </View>
@@ -914,6 +1134,23 @@ export default function OrdersScreen() {
           >
             <Text style={styles.placeOrderText}>{editingRunningOrderId ? 'Update Order' : 'Place Order'}</Text>
           </TouchableOpacity>
+
+          {/* New: clear cart */}
+          <TouchableOpacity
+            style={[
+              styles.clearCartButton,
+              editingRunningOrderId ? styles.clearCartButtonDanger : undefined
+            ]}
+            onPress={clearCart}
+            activeOpacity={0.85}
+          >
+            <Text style={[
+              styles.clearCartButtonText,
+              editingRunningOrderId ? styles.clearCartButtonTextDanger : undefined
+            ]}>
+              {editingRunningOrderId ? 'Cancel Update' : 'Clear Cart'}
+            </Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -930,7 +1167,14 @@ export default function OrdersScreen() {
                   {['Dine In', 'Take away'].map(type => (
                     <TouchableOpacity
                       key={type}
-                      onPress={() => setOrderDetails(prev => ({ ...prev, orderType: type }))}
+                      onPress={() => {
+                        setOrderDetails(prev => ({
+                          ...prev,
+                          orderType: type,
+                          tableId: type.toLowerCase().includes('take') ? '' : prev.tableId,
+                        }));
+                        if (type.toLowerCase().includes('take')) setTableDropdownOpen(false);
+                      }}
                       style={[styles.segmentButton, orderDetails.orderType === type && styles.segmentButtonActive]}
                     >
                       <Text style={[styles.segmentButtonText, orderDetails.orderType === type && styles.segmentButtonTextActive]}>
@@ -940,41 +1184,177 @@ export default function OrdersScreen() {
                   ))}
                 </View>
 
-                <Text style={styles.label}>Customer ID</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g., 12"
-                  value={orderDetails.customer}
-                  onChangeText={(text) => setOrderDetails(prev => ({ ...prev, customer: text }))}
-                  keyboardType="numeric"
-                />
+                {/* Customer dropdown */}
+                <Text style={styles.label}>Customer</Text>
+                <View>
+                  <TouchableOpacity
+                    style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+                    onPress={() => setCustomerDropdownOpen(p => !p)}
+                    activeOpacity={0.85}
+                  >
+                    <Text>
+                      {orderDetails.customer
+                        ? (formatCustomerName(customers.find(c => String(c.id) === String(orderDetails.customer))) || `#${orderDetails.customer}`)
+                        : 'Walk-in Customer'}
+                    </Text>
+                    <Text style={{ color: '#6B7280' }}>{customerDropdownOpen ? '▲' : '▼'}</Text>
+                  </TouchableOpacity>
 
-                <Text style={styles.label}>Room ID</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g., 3"
-                  value={orderDetails.room}
-                  onChangeText={(text) => setOrderDetails(prev => ({ ...prev, room: text }))}
-                  keyboardType="numeric"
-                />
+                  {customerDropdownOpen && (
+                    <View style={styles.paymentDropdown}>
+                      <TouchableOpacity
+                        key="walkin"
+                        style={styles.paymentDropdownOption}
+                        onPress={() => {
+                          setOrderDetails(prev => ({ ...prev, customer: '', room: '' }));
+                          setCustomerDropdownOpen(false);
+                          setRoomDropdownOpen(false);
+                        }}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={!orderDetails.customer ? styles.paymentMethodTextActive : styles.paymentMethodText}>
+                          Walk-in Customer
+                        </Text>
+                      </TouchableOpacity>
 
-                <Text style={styles.label}>Table ID</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g., 5"
-                  value={orderDetails.tableId}
-                  onChangeText={(text) => setOrderDetails(prev => ({ ...prev, tableId: text }))}
-                  keyboardType="numeric"
-                />
+                      {customersLoading && <Text style={{ padding: 8 }}>Loading...</Text>}
+                      {customersError && <Text style={{ padding: 8, color: 'red' }}>{customersError}</Text>}
 
-                <Text style={styles.label}>Steward ID</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g., 7"
-                  value={orderDetails.stewardId}
-                  onChangeText={(text) => setOrderDetails(prev => ({ ...prev, stewardId: text }))}
-                  keyboardType="numeric"
-                />
+                      {customers.map(c => (
+                        <TouchableOpacity
+                          key={String(c.id)}
+                          style={styles.paymentDropdownOption}
+                          onPress={() => {
+                            // selecting customer triggers rooms fetch via useEffect
+                            setOrderDetails(prev => ({ ...prev, customer: String(c.id), room: '' }));
+                            setCustomerDropdownOpen(false);
+                          }}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={orderDetails.customer === String(c.id) ? styles.paymentMethodTextActive : styles.paymentMethodText}>
+                            {formatCustomerName(c)}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                {/* Room dropdown (fetched by getCustomerRooms using reservation_id = selected customer id) */}
+                <Text style={styles.label}>Room</Text>
+                <View>
+                  <TouchableOpacity
+                    style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+                    onPress={() => {
+                      if (!orderDetails.customer) return; // must select customer first
+                      if (roomsLoading) return;
+                      setRoomDropdownOpen(p => !p);
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Text>
+                      {!orderDetails.customer
+                        ? 'Select customer first'
+                        : roomsLoading
+                          ? 'Loading rooms...'
+                          : orderDetails.room
+                            ? (roomLabel(customerRooms.find(r => String(r.room?.id) === String(orderDetails.room))) || `#${orderDetails.room}`)
+                            : (customerRooms.length > 0 ? 'Select room' : 'No rooms found')}
+                    </Text>
+                    <Text style={{ color: '#6B7280' }}>
+                      {roomDropdownOpen ? '▲' : '▼'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {!!roomsError && <Text style={{ paddingBottom: 8, color: 'red' }}>{roomsError}</Text>}
+
+                  {roomDropdownOpen && orderDetails.customer && !roomsLoading && (
+                    <View style={styles.paymentDropdown}>
+                      <TouchableOpacity
+                        key="room-none"
+                        style={styles.paymentDropdownOption}
+                        onPress={() => { setOrderDetails(prev => ({ ...prev, room: '' })); setRoomDropdownOpen(false); }}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={!orderDetails.room ? styles.paymentMethodTextActive : styles.paymentMethodText}>
+                          None
+                        </Text>
+                      </TouchableOpacity>
+
+                      {customerRooms.map((ri, idx) => {
+                        const id = String(ri?.room?.id ?? idx);
+                        return (
+                          <TouchableOpacity
+                            key={id}
+                            style={styles.paymentDropdownOption}
+                            onPress={() => { setOrderDetails(prev => ({ ...prev, room: id })); setRoomDropdownOpen(false); }}
+                            activeOpacity={0.85}
+                          >
+                            <Text style={orderDetails.room === id ? styles.paymentMethodTextActive : styles.paymentMethodText}>
+                              {roomLabel(ri) || `#${id}`}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  {/* Manual fallback if rooms not returned */}
+                  {orderDetails.customer && !roomsLoading && customerRooms.length === 0 && (
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Manual room (optional)"
+                      value={orderDetails.room}
+                      onChangeText={(text) => setOrderDetails(prev => ({ ...prev, room: text }))}
+                      keyboardType="default"
+                    />
+                  )}
+                </View>
+
+                <Text style={styles.label}>Steward</Text>
+                <View>
+                  <TouchableOpacity
+                    style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+                    onPress={() => setStewardDropdownOpen(p => !p)}
+                    activeOpacity={0.85}
+                  >
+                    <Text>
+                      {orderDetails.stewardId
+                        ? (stewardFullName(stewards.find(s => String(s.id) === String(orderDetails.stewardId))) || `#${orderDetails.stewardId}`)
+                        : 'None'}
+                    </Text>
+                    <Text style={{ color: '#6B7280' }}>{stewardDropdownOpen ? '▲' : '▼'}</Text>
+                  </TouchableOpacity>
+
+                  {stewardDropdownOpen && (
+                    <View style={styles.paymentDropdown}>
+                      <TouchableOpacity
+                        key="none"
+                        style={styles.paymentDropdownOption}
+                        onPress={() => { setOrderDetails(prev => ({ ...prev, stewardId: '' })); setStewardDropdownOpen(false); }}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={!orderDetails.stewardId ? styles.paymentMethodTextActive : styles.paymentMethodText}>None</Text>
+                      </TouchableOpacity>
+
+                      {stewardsLoading && <Text style={{ padding: 8 }}>Loading...</Text>}
+                      {stewardsError && <Text style={{ padding: 8, color: 'red' }}>{stewardsError}</Text>}
+
+                      {stewards.map(s => (
+                        <TouchableOpacity
+                          key={String(s.id)}
+                          style={styles.paymentDropdownOption}
+                          onPress={() => { setOrderDetails(prev => ({ ...prev, stewardId: String(s.id) })); setStewardDropdownOpen(false); }}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={orderDetails.stewardId === String(s.id) ? styles.paymentMethodTextActive : styles.paymentMethodText}>
+                            {stewardFullName(s)}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
 
                 <View style={styles.serviceChargeRow}>
                   <Text>Enable Service Charge (10%)</Text>
@@ -1359,7 +1739,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   categoryPill: {
-    paddingHorizontal: 14,
+    paddingHorizontal:  14,
     paddingVertical: 8,
     minHeight: 38,
     borderRadius: 20,
@@ -1415,7 +1795,7 @@ const styles = StyleSheet.create({
   },
   availabilityDotOff: { backgroundColor: '#D1D5DB' },
   menuImage: { width: 90, height: 90, borderRadius: 14, backgroundColor: '#F3F4F6', resizeMode: 'cover' },
-  placeholder: { alignItems: 'center', justifyContent: 'center' },
+   placeholder: { alignItems: 'center', justifyContent: 'center' },
   placeholderText: { color: '#6B7280', fontSize: 12 },
   menuInfo: { flex: 1 },
   menuTitle: { fontSize: 16, fontWeight: '800', color: '#111827' },
@@ -1424,8 +1804,7 @@ const styles = StyleSheet.create({
   menuPrice: {
     fontSize: 16,
     fontWeight: '900',
-    color: '#FF6B6B',
-    backgroundColor: 'transparent',
+    color: '#FF6B6B',    backgroundColor: 'transparent',
     paddingHorizontal: 8,
     paddingVertical: 6,
     borderRadius: 8,
@@ -1441,7 +1820,7 @@ const styles = StyleSheet.create({
   cartQtyPill: { marginHorizontal: 12 },
   qtyPillButton: { paddingHorizontal: 12, paddingVertical: 4, fontSize: 18, fontWeight: '700', color: '#FF6B6B' },
   qtyPillValue: { minWidth: 26, textAlign: 'center', fontWeight: '700', color: '#111827' },
-  addBadge: {
+   addBadge: {
     backgroundColor: 'transparent',
     borderRadius: 10, // match menuCard radius
     paddingVertical: 6,
@@ -1513,7 +1892,7 @@ const styles = StyleSheet.create({
   fabCartText: { color: '#fff', fontWeight: '800' },
 
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)' },
-  keyboardAvoid: { flex: 1, justifyContent: 'center' },
+  keyboardAvoid: { flex:  1, justifyContent: 'center' },
   scrollContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
   modalContent: {
     backgroundColor: '#FFFFFF',
@@ -1776,6 +2155,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FF6B6B',
   },
+  hideCartButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+  },
   cartItemsWrapper: {
     maxHeight: height * 0.5,
     marginBottom: 16,
@@ -1845,4 +2232,34 @@ const styles = StyleSheet.create({
   },
   paymentMethodTextActive: { color: '#FF6B6B', fontWeight: '800' },
   paymentMethodText: { color: '#111827', fontWeight: '700' },
+  clearCartButton: {
+    marginTop: 10,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  clearCartButtonDanger: {
+    borderColor: '#FCA5A5',
+    backgroundColor: '#FEF2F2',
+    shadowColor: '#DC2626',
+    shadowOpacity: 0.1,
+  },
+  clearCartButtonText: {
+    color: '#374151',
+    fontWeight: '800',
+    fontSize: 15,
+    letterSpacing: 0.3,
+  },
+  clearCartButtonTextDanger: {
+    color: '#DC2626',
+  },
 });

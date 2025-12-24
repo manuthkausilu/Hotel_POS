@@ -1,5 +1,4 @@
 import type { AxiosRequestConfig } from 'axios';
-import { v4 as uuidv4 } from 'uuid';
 import type { Order, CreateOrderRequest, CreateOrderResponse, CartItem } from '../types/Order';
 import type { MenuItem } from '../types/menu';
 import { apiClient } from './apiClient';
@@ -10,6 +9,9 @@ type RunningOrder = {
   total: number;
   created_at: string;
   customer_name: string;
+  // New (optional): if backend provides split names
+  customer_first_name?: string;
+  customer_last_name?: string;
   room_number: string | null;
   table_id: string | null;
   steward_name: string | null;
@@ -171,7 +173,11 @@ export class OrderService {
     const normalizedOrderType = orderData.orderType?.toLowerCase().includes('take') ? 'Take away' : 'Dine In';
 
     // Send empty strings for optional fields when no value provided
-    const tableIdValue: string = orderData.tableId && !isNaN(Number(orderData.tableId)) ? String(orderData.tableId) : "";
+    const tableIdValue: string =
+      normalizedOrderType === 'Take away'
+        ? ''
+        : (orderData.tableId && !isNaN(Number(orderData.tableId)) ? String(orderData.tableId) : "");
+
     const roomValue: string = orderData.room?.id && orderData.room.id !== 'walk_in' ? String(orderData.room.id) : "";
     const customerValue: string = orderData.customer?.id && orderData.customer.id !== 'walk_in' ? String(orderData.customer.id) : "Walk-in Customer";
 
