@@ -159,8 +159,16 @@ export async function getOrderInvoice(orderId: string | number): Promise<{ invoi
 		const data = res.data;
 		
 		if (data && data.success && data.order && data.invoice_url) {
+			// Ensure invoice URL is absolute
+			let invoiceUrl = data.invoice_url;
+			if (!invoiceUrl.startsWith('http')) {
+				// Construct absolute URL if relative
+				const baseURL = apiClient.defaults.baseURL || 'https://app.trackerstay.com';
+				invoiceUrl = `${baseURL}${invoiceUrl.startsWith('/') ? invoiceUrl : '/' + invoiceUrl}`;
+			}
+			
 			return { 
-				invoiceUrl: data.invoice_url, 
+				invoiceUrl, 
 				order: data.order 
 			};
 		}

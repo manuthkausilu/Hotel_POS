@@ -1,6 +1,6 @@
 // OrdersScreen: displays menu items and cart UI only.
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, Dimensions, Alert, Modal, TextInput, ScrollView, TouchableWithoutFeedback, Keyboard, Switch, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, Dimensions, Alert, Modal, TextInput, ScrollView, TouchableWithoutFeedback, Keyboard, Switch, KeyboardAvoidingView, Platform, SafeAreaView } from 'react-native';
 import { fetchMenuData, fetchMenuItemByIdEndpoint } from '../../../services/menuService';
 import { orderService } from '../../../services/orderService';
 import { getStewards, Steward, formatStewardName } from '../../../services/staffService';
@@ -9,6 +9,8 @@ import { getTables, type Table } from '../../../services/tableService';
 import type { MenuItem, MenuResponse } from '../../../types/menu';
 import ComboSelectionModal from '../../../components/orders/ComboSelectionModal';
 import CartPanel from '../../../components/orders/CartPanel';
+import InvoiceWebView from '../../../components/InvoiceWebView';
+import { getOrderInvoice } from '../../../services/invoiceService';
 
 const { width, height } = Dimensions.get('window');
 const imageBase = 'https://app.trackerstay.com/storage/';
@@ -97,6 +99,11 @@ export default function OrdersScreen() {
   const [roomsLoading, setRoomsLoading] = useState(false);
   const [roomsError, setRoomsError] = useState<string | null>(null);
   const [roomDropdownOpen, setRoomDropdownOpen] = useState(false);
+
+  // New: invoice modal state
+  const [invoiceModalVisible, setInvoiceModalVisible] = useState(false);
+  const [invoiceUrl, setInvoiceUrl] = useState<string>('');
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
 
   // Calculate cartTotal so it is available in the component
   const cartTotal = cart.reduce((sum, c) => {
@@ -563,7 +570,6 @@ export default function OrdersScreen() {
 			const payload = {
 				order_id: finalizeOrderId,
 				payment_method: paymentMethod || 'Cash',
-				// For 'Free' send the order's total as paid_amount so backend accepts finalization
 				paid_amount: paymentMethod === 'Free' ? Number(finalizeOrderTotal.toFixed(2)) : Number(paid.toFixed(2)),
 				given_amount: paymentMethod === 'Free' ? 0 : (givenAmount ? Number(parseFloat(givenAmount).toFixed(2)) : undefined),
 				change_amount: paymentMethod === 'Free' ? 0 : (changeAmount ?? undefined),
@@ -571,10 +577,30 @@ export default function OrdersScreen() {
 			};
 			const res = await orderService.finalizeOrder(payload);
 			if (res && res.success) {
-				Alert.alert('Success', res.message ?? 'Order finalized');
+				// Close finalize modal first
 				setFinalizeModalVisible(false);
-				setFinalizeOrderId(null);
-				await fetchRunningOrders(true);
+				setPaymentMethod('Cash');
+				setPaidAmount('');
+				setGivenAmount('');
+				setChangeAmount(null);
+				
+				// Fetch and show invoice
+				setInvoiceLoading(true);
+				try {
+					const { invoiceUrl: url } = await getOrderInvoice(finalizeOrderId);
+					setInvoiceUrl(url);
+					setInvoiceModalVisible(true);
+					
+					// Refresh running orders
+					await fetchRunningOrders(true);
+				} catch (invoiceErr: any) {
+					Alert.alert('Invoice Error', invoiceErr?.message ?? 'Failed to load invoice');
+					// Still refresh orders even if invoice fails
+					await fetchRunningOrders(true);
+				} finally {
+					setInvoiceLoading(false);
+					setFinalizeOrderId(null);
+				}
 			} else {
 				Alert.alert('Error', res?.message ?? 'Finalize failed');
 			}
@@ -1488,7 +1514,7 @@ export default function OrdersScreen() {
 										<TextInput
 											style={[styles.input, styles.finalizeInput, paymentMethod === 'Free' && styles.finalizeInputDisabled]}
 											value={givenAmount}
-											onChangeText={setGivenAmount}
+										 onChangeText={setGivenAmount}
 											placeholder="Optional"
 											placeholderTextColor="#9CA3AF"
 											editable={paymentMethod !== 'Free'}
@@ -1527,13 +1553,13 @@ export default function OrdersScreen() {
 											</TouchableOpacity>
 
 											<TouchableOpacity
-												style={[styles.finalizeConfirmButton, finalizeProcessing && styles.finalizeConfirmButtonDisabled]}
-												onPress={() => {
-													Keyboard.dismiss();
-													confirmFinalize();
-												}}
-												disabled={finalizeProcessing}
-												activeOpacity={0.85}
+											 style={[styles.finalizeConfirmButton, finalizeProcessing && styles.finalizeConfirmButtonDisabled]}
+											 onPress={() => {
+												 Keyboard.dismiss();
+												 confirmFinalize();
+											 }}
+											 disabled={finalizeProcessing}
+											 activeOpacity={0.85}
 											>
 												<Text style={styles.finalizeConfirmText}>
 													{finalizeProcessing ? 'Processing...' : 'Confirm Finalize'}
@@ -1547,6 +1573,35 @@ export default function OrdersScreen() {
 					</TouchableWithoutFeedback>
 				</KeyboardAvoidingView>
 			</Modal>
+
+      {/* Invoice Modal */}
+      <Modal visible={invoiceModalVisible} animationType="slide" transparent={false}>
+        <SafeAreaView style={styles.invoiceModalSafeArea}>
+          <View style={styles.invoiceModalContainer}>
+            <View style={styles.invoiceModalHeader}>
+              <Text style={styles.invoiceModalTitle}>Order Invoice</Text>
+            </View>
+            
+            {invoiceLoading ? (
+              <View style={styles.invoiceLoadingContainer}>
+                <Text style={styles.invoiceLoadingText}>Loading invoice...</Text>
+              </View>
+            ) : invoiceUrl ? (
+              <InvoiceWebView
+                invoiceUrl={invoiceUrl}
+                onClose={() => {
+                  setInvoiceModalVisible(false);
+                  setInvoiceUrl('');
+                }}
+              />
+            ) : (
+              <View style={styles.invoiceLoadingContainer}>
+                <Text style={styles.invoiceLoadingText}>No invoice available</Text>
+              </View>
+            )}
+          </View>
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }
@@ -1688,7 +1743,7 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.04,
-    shadowRadius: 12,
+    shadowRadius:  12,
     elevation: 2,
   },
   menuImageWrapper: { marginRight: 14 },
@@ -2113,4 +2168,46 @@ const styles = StyleSheet.create({
   },
   paymentMethodTextActive: { color: '#FF6B6B', fontWeight: '800' },
   paymentMethodText: { color: '#111827', fontWeight: '700' },
+
+  // Invoice modal styles
+  invoiceModalSafeArea: {
+    flex: 1,
+    backgroundColor: '#FF6B6B',
+  },
+  invoiceModalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  invoiceModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    backgroundColor: '#FF6B6B',
+    minHeight: 56,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  invoiceModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  invoiceLoadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  invoiceLoadingText: {
+    color: '#FF6B6B',
+    fontWeight: '700',
+    fontSize: 16,
+    textAlign: 'center',
+  },
 });
