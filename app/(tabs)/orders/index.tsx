@@ -1,13 +1,14 @@
 // OrdersScreen: displays menu items and cart UI only.
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, Dimensions, Alert, Modal, TextInput, ScrollView, TouchableWithoutFeedback, Keyboard, Switch } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, Dimensions, Alert, Modal, TextInput, ScrollView, TouchableWithoutFeedback, Keyboard, Switch, KeyboardAvoidingView, Platform } from 'react-native';
 import { fetchMenuData, fetchMenuItemByIdEndpoint } from '../../../services/menuService';
 import { orderService } from '../../../services/orderService';
 import { getStewards, Steward, formatStewardName } from '../../../services/staffService';
 import { getCustomers, Customer, formatCustomerName, getCustomerRooms, type RoomItem } from '../../../services/customerService';
-import { getTables, type Table } from '../../../services/tableService'; // <-- add
+import { getTables, type Table } from '../../../services/tableService'; 
 import type { MenuItem, MenuResponse } from '../../../types/menu';
-import { GestureResponderEvent } from 'react-native';
+import ComboSelectionModal from '../../../components/orders/ComboSelectionModal';
+import CartPanel from '../../../components/orders/CartPanel';
 
 const { width, height } = Dimensions.get('window');
 const imageBase = 'https://app.trackerstay.com/storage/';
@@ -974,8 +975,6 @@ export default function OrdersScreen() {
 
   return (
     <View style={styles.container}>
-      {/* header title/back removed per request */}
-
       {renderMenuItems()}
 
       {/* running orders overlay and drawer */}
@@ -1075,84 +1074,17 @@ export default function OrdersScreen() {
         </>
       )}
 
-      {/* Cart panel — restored previous inline cart with Place Order button */}
-      {showCart && (
-        <View style={styles.cartContainer}>
-          <View style={styles.cartHeader}>
-            <View>
-              <Text style={styles.cartTitle}>Cart</Text>
-              <Text style={styles.cartSubtitle}>{cart.length} {cart.length === 1 ? 'item' : 'items'} • Rs {cartTotal.toFixed(2)}</Text>
-            </View>
-            <TouchableOpacity onPress={toggleCart} style={styles.hideCartButton}>
-              <Text style={styles.hideCartText}>Hide</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.cartItemsWrapper}>
-            <FlatList
-              data={cart}
-              keyExtractor={(c) => c.entryId}
-              ItemSeparatorComponent={() => <View style={styles.cartDivider} />}
-              showsVerticalScrollIndicator={true}
-              nestedScrollEnabled={true}
-              renderItem={({ item: cartItem }) => (
-                <View style={styles.cartItem}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.cartItemName} numberOfLines={1} ellipsizeMode="tail">{cartItem.item.name}</Text>
-                    <Text style={styles.cartItemMeta}>Rs {Number(cartItem.item.price).toFixed(2)}</Text>
-                    {cartItem.combos && cartItem.combos.length > 0 && (
-                      <View style={{ marginTop: 6 }}>
-                        {cartItem.combos.map((sc) => (
-                          <Text key={String(sc.comboId)} style={{ color: '#666', fontSize: 13 }}>
-                            + {sc.menu?.name ?? 'Option'} {sc.menu?.price ? `• Rs ${Number(sc.menu.price).toFixed(2)}` : ''}
-                          </Text>
-                        ))}
-                      </View>
-                    )}
-                  </View>
-                  <View style={[styles.qtyPill, styles.cartQtyPill]}>
-                    <TouchableOpacity onPress={() => updateQuantity(cartItem.entryId, -1)}>
-                      <Text style={styles.qtyPillButton}>-</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.qtyPillValue}>{cartItem.quantity}</Text>
-                    <TouchableOpacity onPress={() => updateQuantity(cartItem.entryId, 1)}>
-                      <Text style={styles.qtyPillButton}>+</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <TouchableOpacity onPress={() => removeFromCart(cartItem.entryId)}>
-                    <Text style={styles.removeText}>Remove</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            />
-          </View>
-
-          <TouchableOpacity
-            style={styles.placeOrderButton}
-            // when editing a running order, open the Order Details modal (user will confirm with Update)
-            onPress={editingRunningOrderId ? () => setShowOrderModal(true) : placeOrder}
-          >
-            <Text style={styles.placeOrderText}>{editingRunningOrderId ? 'Update Order' : 'Place Order'}</Text>
-          </TouchableOpacity>
-
-          {/* New: clear cart */}
-          <TouchableOpacity
-            style={[
-              styles.clearCartButton,
-              editingRunningOrderId ? styles.clearCartButtonDanger : undefined
-            ]}
-            onPress={clearCart}
-            activeOpacity={0.85}
-          >
-            <Text style={[
-              styles.clearCartButtonText,
-              editingRunningOrderId ? styles.clearCartButtonTextDanger : undefined
-            ]}>
-              {editingRunningOrderId ? 'Cancel Update' : 'Clear Cart'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      {/* Cart panel — now extracted to component */}
+      <CartPanel
+        cart={cart}
+        visible={showCart}
+        onToggle={toggleCart}
+        onUpdateQuantity={updateQuantity}
+        onRemoveItem={removeFromCart}
+        onPlaceOrder={editingRunningOrderId ? () => setShowOrderModal(true) : placeOrder}
+        onClearCart={clearCart}
+        editingRunningOrderId={editingRunningOrderId}
+      />
 
       {/* Order Modal */}
       <Modal visible={showOrderModal} animationType="slide" transparent>
@@ -1434,72 +1366,24 @@ export default function OrdersScreen() {
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* combo selection modal */}
-      {comboModalVisible && comboContext && (
-        <Modal visible={comboModalVisible} animationType="slide" transparent>
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalOverlay}>
-              <View style={[styles.modalContent, { maxHeight: '80%' }]}>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Choose Options</Text>
-                </View>
-                 <ScrollView>
-                   {comboContext.combos.map((c: any, idx: number) => {
-                     const key = c.id ?? idx;
-                     const items = Array.isArray(c.combo_item) ? c.combo_item : (c.combo_item ? [c.combo_item] : []);
-                     return (
-                       <View key={String(key)} style={{ marginBottom: 16 }}>
-                         <Text style={{ fontWeight: '700', marginBottom: 8 }}>{c.combo_title ?? c.title ?? c.name ?? `Choice ${idx + 1}`}</Text>
-                         {items.length === 0 ? (
-                           <Text style={{ color: '#666' }}>No options available</Text>
-                         ) : (
-                           items.map((ci: any) => {
-                             const menu = ci.menu ?? ci;
-                             const menuId = menu?.id ?? ci.menu_id ?? ci.id;
-                             const selected = String(selectedComboChoices[key]) === String(menuId);
-                             const imgUri = menu?.image ? imageBase + menu.image.replace(/^\/+/, '') : null;
-                             return (
-                              <TouchableOpacity
-                                key={String(menuId)}
-                                onPress={() => setSelectedComboChoices(prev => ({ ...prev, [key]: menuId }))}
-                                style={[styles.comboOptionRow, selected && styles.comboOptionSelected]}
-                                activeOpacity={0.85}
-                              >
-                                 {imgUri ? (
-                                   <Image source={{ uri: imgUri }} style={styles.comboOptionImage} />
-                                 ) : (
-                                   <View style={[styles.comboOptionImage, styles.placeholder]}>
-                                     <Text style={styles.placeholderText}>No image</Text>
-                                   </View>
-                                 )}
-                                 <View style={styles.comboOptionInfo}>
-                                   <Text style={styles.comboOptionName}>{menu?.name ?? menu?.title ?? 'Option'}</Text>
-                                   {menu?.price ? <Text style={{ color: '#666' }}>Rs {Number(menu.price).toFixed(2)}</Text> : null}
-                                 </View>
-                               </TouchableOpacity>
-                             );
-                           })
-                         )}
-                       </View>
-                     );
-                   })}
-                 </ScrollView>
-                <View style={styles.modalActionsRow}>
-                  <TouchableOpacity style={styles.cancelButtonAlt} onPress={() => { setComboModalVisible(false); setComboContext(null); setSelectedComboChoices({}); }}>
-                    <Text style={styles.cancelTextAlt}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.submitButtonAlt} onPress={confirmAddWithCombos}>
-                    <Text style={styles.submitTextAlt}>Add to cart</Text>
-                  </TouchableOpacity>
-                </View>
-               </View>
-             </View>
-           </TouchableWithoutFeedback>
-         </Modal>
-       )}
+      {/* combo selection modal — now extracted to component */}
+      <ComboSelectionModal
+        visible={comboModalVisible}
+        comboContext={comboContext}
+        selectedComboChoices={selectedComboChoices}
+        onSelectChoice={(key, menuId) =>
+          setSelectedComboChoices((prev) => ({ ...prev, [key]: menuId }))
+        }
+        onConfirm={confirmAddWithCombos}
+        onCancel={() => {
+          setComboModalVisible(false);
+          setComboContext(null);
+          setSelectedComboChoices({});
+        }}
+      />
 
-       {/* Cancel Reason Modal */}
-       <Modal visible={cancelModalVisible} animationType="fade" transparent>
+      {/* Cancel Reason Modal */}
+      <Modal visible={cancelModalVisible} animationType="fade" transparent>
          <TouchableWithoutFeedback onPress={() => !cancelProcessing && setCancelModalVisible(false)}>
            <View style={styles.modalOverlay}>
              <TouchableWithoutFeedback>
@@ -1540,98 +1424,128 @@ export default function OrdersScreen() {
 
        {/* Finalize Modal */}
 			<Modal visible={finalizeModalVisible} animationType="fade" transparent>
-				<TouchableWithoutFeedback onPress={() => !finalizeProcessing && setFinalizeModalVisible(false)}>
-					<View style={styles.modalOverlay}>
-						<TouchableWithoutFeedback>
-							<View style={[styles.modalContent, { width: '90%', maxWidth: 520 }]}>
-								<Text style={{ fontSize: 16, fontWeight: '800', marginBottom: 8 }}>Finalize Order #{finalizeOrderId}</Text>
+				<KeyboardAvoidingView 
+					behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+					style={{ flex: 1 }}
+				>
+					<TouchableWithoutFeedback onPress={() => {
+						Keyboard.dismiss();
+						if (!finalizeProcessing) setFinalizeModalVisible(false);
+					}}>
+						<View style={styles.modalOverlay}>
+							<TouchableWithoutFeedback onPress={() => {}}>
+								<ScrollView 
+									contentContainerStyle={styles.finalizeModalScroll}
+									keyboardShouldPersistTaps="handled"
+									showsVerticalScrollIndicator={false}
+								>
+									<View style={[styles.modalContent, styles.finalizeModalContent]}>
+										<Text style={styles.finalizeModalTitle}>Finalize Order #{finalizeOrderId}</Text>
 
-								<Text style={{ marginBottom: 6, fontWeight: '700' }}>Payment method</Text>
-								{/* Dropdown control */}
-								<View>
-									<TouchableOpacity
-										style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
-										onPress={() => setPaymentDropdownOpen(p => !p)}
-										activeOpacity={0.85}
-									>
-										<Text>{paymentMethod}</Text>
-										<Text style={{ color: '#6B7280' }}>{paymentDropdownOpen ? '▲' : '▼'}</Text>
-									</TouchableOpacity>
+										<Text style={styles.finalizeLabel}>Payment method</Text>
+										<View>
+											<TouchableOpacity
+												style={[styles.input, styles.finalizeDropdownTrigger]}
+												onPress={() => setPaymentDropdownOpen(p => !p)}
+												activeOpacity={0.85}
+											>
+												<Text style={styles.finalizeDropdownText}>{paymentMethod}</Text>
+												<Text style={styles.finalizeDropdownIcon}>{paymentDropdownOpen ? '▲' : '▼'}</Text>
+											</TouchableOpacity>
 
-									{paymentDropdownOpen && (
-										<View style={styles.paymentDropdown}>
-											{['Cash', 'Card', 'Free'].map(pm => (
-												<TouchableOpacity
-													key={pm}
-													style={styles.paymentDropdownOption}
-													onPress={() => { setPaymentMethod(pm); setPaymentDropdownOpen(false); }}
-													activeOpacity={0.85}
-												>
-													<Text style={paymentMethod === pm ? styles.paymentMethodTextActive : styles.paymentMethodText}>
-														{pm}
-													</Text>
-												</TouchableOpacity>
-											))}
+											{paymentDropdownOpen && (
+												<View style={styles.paymentDropdown}>
+													{['Cash', 'Card', 'Free'].map(pm => (
+														<TouchableOpacity
+															key={pm}
+															style={styles.paymentDropdownOption}
+															onPress={() => { setPaymentMethod(pm); setPaymentDropdownOpen(false); }}
+															activeOpacity={0.85}
+														>
+															<Text style={paymentMethod === pm ? styles.paymentMethodTextActive : styles.paymentMethodText}>
+																{pm}
+															</Text>
+														</TouchableOpacity>
+													))}
+												</View>
+											)}
 										</View>
-									)}
-								</View>
 
-								<Text style={{ marginBottom: 6, fontWeight: '700' }}>Paid amount</Text>
-								<TextInput
-									style={[styles.input, paymentMethod === 'Free' && { backgroundColor: '#F3F4F6' }]}
-									value={paidAmount}
-									onChangeText={setPaidAmount}
-									placeholder="e.g., 1785.00"
-									editable={paymentMethod !== 'Free'}
-									keyboardType="numeric"
-								/>
+										<Text style={styles.finalizeLabel}>Paid amount</Text>
+										<TextInput
+											style={[styles.input, styles.finalizeInput, paymentMethod === 'Free' && styles.finalizeInputDisabled]}
+											value={paidAmount}
+											onChangeText={setPaidAmount}
+											placeholder="e.g., 1785.00"
+											placeholderTextColor="#9CA3AF"
+											editable={paymentMethod !== 'Free'}
+											keyboardType="numeric"
+											returnKeyType="done"
+											onSubmitEditing={() => Keyboard.dismiss()}
+										/>
 
-								<Text style={{ marginBottom: 6, fontWeight: '700' }}>Given amount (optional)</Text>
-								<TextInput
-									style={[styles.input, paymentMethod === 'Free' && { backgroundColor: '#F3F4F6' }]}
-									value={givenAmount}
-									onChangeText={setGivenAmount}
-									placeholder=""
-									editable={paymentMethod !== 'Free'}
-									keyboardType="numeric"
-								/>
+										<Text style={styles.finalizeLabel}>Given amount (optional)</Text>
+										<TextInput
+											style={[styles.input, styles.finalizeInput, paymentMethod === 'Free' && styles.finalizeInputDisabled]}
+											value={givenAmount}
+											onChangeText={setGivenAmount}
+											placeholder="Optional"
+											placeholderTextColor="#9CA3AF"
+											editable={paymentMethod !== 'Free'}
+											keyboardType="numeric"
+											returnKeyType="done"
+											onSubmitEditing={() => Keyboard.dismiss()}
+										/>
 
-								{changeAmount !== null && (
-									<Text style={{ marginBottom: 8 }}>Change: Rs {changeAmount.toFixed(2)}</Text>
-								)}
+										{changeAmount !== null && (
+											<View style={styles.finalizeChangeRow}>
+												<Text style={styles.finalizeChangeLabel}>Change:</Text>
+												<Text style={styles.finalizeChangeValue}>Rs {changeAmount.toFixed(2)}</Text>
+											</View>
+										)}
 
-								<Text style={{ marginBottom: 8, color: '#6B7280' }}>Order date: {formatForApiDate()}</Text>
+										<Text style={styles.finalizeDateText}>Order date: {formatForApiDate()}</Text>
 
-								<View style={{ flexDirection: 'row', gap: 12 }}>
-									<TouchableOpacity
-										style={styles.cancelButtonAlt}
-										onPress={() => {
-											if (!finalizeProcessing) {
-												setFinalizeModalVisible(false);
-												setFinalizeOrderId(null);
-												setPaymentMethod('Cash');
-												setPaidAmount('');
-												setGivenAmount('');
-												setChangeAmount(null);
-											}
-										}}
-										disabled={finalizeProcessing}
-									>
-										<Text style={styles.cancelTextAlt}>Close</Text>
-									</TouchableOpacity>
+										<View style={styles.finalizeButtonRow}>
+											<TouchableOpacity
+												style={styles.finalizeCancelButton}
+												onPress={() => {
+													Keyboard.dismiss();
+													if (!finalizeProcessing) {
+														setFinalizeModalVisible(false);
+														setFinalizeOrderId(null);
+														setPaymentMethod('Cash');
+														setPaidAmount('');
+														setGivenAmount('');
+														setChangeAmount(null);
+													}
+												}}
+												disabled={finalizeProcessing}
+												activeOpacity={0.85}
+											>
+												<Text style={styles.finalizeCancelText}>Close</Text>
+											</TouchableOpacity>
 
-									<TouchableOpacity
-										style={styles.submitButtonAlt}
-										onPress={confirmFinalize}
-										disabled={finalizeProcessing}
-									>
-										<Text style={styles.submitTextAlt}>{finalizeProcessing ? 'Processing...' : 'Confirm Finalize'}</Text>
-									</TouchableOpacity>
-								</View>
-							</View>
-						</TouchableWithoutFeedback>
-					</View>
-				</TouchableWithoutFeedback>
+											<TouchableOpacity
+												style={[styles.finalizeConfirmButton, finalizeProcessing && styles.finalizeConfirmButtonDisabled]}
+												onPress={() => {
+													Keyboard.dismiss();
+													confirmFinalize();
+												}}
+												disabled={finalizeProcessing}
+												activeOpacity={0.85}
+											>
+												<Text style={styles.finalizeConfirmText}>
+													{finalizeProcessing ? 'Processing...' : 'Confirm Finalize'}
+												</Text>
+											</TouchableOpacity>
+										</View>
+									</View>
+								</ScrollView>
+							</TouchableWithoutFeedback>
+						</View>
+					</TouchableWithoutFeedback>
+				</KeyboardAvoidingView>
 			</Modal>
     </View>
   );
@@ -1641,11 +1555,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, padding: 10, backgroundColor: '#FFFFFF' },
   title: { fontSize: 20, fontWeight: 'bold', marginBottom: 10, color: '#111827' },
   list: { paddingBottom: 24 },
-  cartDivider: {
-    height: 1,
-    backgroundColor: '#E5E7EB',
-    marginVertical: 6,
-  },
   sectionHeading: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1818,7 +1727,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   cartQtyPill: { marginHorizontal: 12 },
-  qtyPillButton: { paddingHorizontal: 12, paddingVertical: 4, fontSize: 18, fontWeight: '700', color: '#FF6B6B' },
+  qtyPillButton: { paddingHorizontal: 12, paddingVertical:  4, fontSize: 18, fontWeight: '700', color: '#FF6B6B' },
   qtyPillValue: { minWidth: 26, textAlign: 'center', fontWeight: '700', color: '#111827' },
    addBadge: {
     backgroundColor: 'transparent',
@@ -1856,24 +1765,6 @@ const styles = StyleSheet.create({
   cartSummaryItems: { color: '#FFFFFF', fontSize: 13, letterSpacing: 0.6, textTransform: 'uppercase' },
   cartSummaryTotal: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
   cartSummaryCta: { color: '#FFFFFF', fontWeight: '800', fontSize: 15 },
-  cartContainer: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 100, // above the summary bar
-    padding: 16,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    elevation: 12,
-    borderWidth: 1,
-    borderColor: '#F3F4F6',
-    maxHeight: height * 0.6, // Limit cart height to 60% of screen
-    zIndex: 1000,
-  },
   fabCart: {
     position: 'absolute',
     right: 20,
@@ -1933,46 +1824,8 @@ const styles = StyleSheet.create({
   backText: { fontSize: width > 400 ? 16 : 14, color: '#FF6B6B' },
   headerTitle: { flex: 1, textAlign: 'center', fontSize: width > 400 ? 26 : 22, fontWeight: '700', marginHorizontal: 10, color: '#111827' },
   spacer: { width: 50 },
-  comboOptionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    marginBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
-    borderWidth: 1,
-    borderColor: '#F3F4F6',
-  },
-  comboOptionSelected: {
-    borderWidth: 2,
-    borderColor: '#FF6B6B',
-    backgroundColor: '#FFF1F1',
-  },
-  comboOptionImage: {
-    width: 64,
-    height: 64,
-    borderRadius: 10,
-    marginRight: 12,
-    backgroundColor: '#F3F4F6',
-    resizeMode: 'cover',
-  },
-  comboOptionInfo: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  comboOptionName: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  modalActionsRow: { flexDirection: 'row', justifyContent: 'space-between', padding: 16, gap: 12 },
+
+  // Add missing styles:
   cancelButtonAlt: {
     flex: 1,
     backgroundColor: 'transparent',
@@ -1996,57 +1849,18 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   submitTextAlt: { color: '#FFFFFF', fontWeight: '800' },
-  segmentedControl: {
-    flexDirection: 'row',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    overflow: 'hidden',
-  },
-  segmentButton: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  segmentButtonActive: {
-    backgroundColor: '#FF6B6B',
-  },
-  segmentButtonText: {
-    color: '#111827',
-    fontWeight: '700',
-  },
-  segmentButtonTextActive: {
-    color: '#FFFFFF',
-  },
-  selectRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  selectValue: {
-    fontWeight: '700',
-    color: '#111827',
-    marginLeft: 12,
-  },
-  selectionOption: {
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderBottomWidth: 1,
-    borderColor: '#F3F4F6',
-  },
-  // added small container for right-side controls
-  searchRight: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 12 },
-
-  // --- added styles for ongoing drawer and toggle ---
+  
+  // Ongoing drawer styles
   ongoingToggle: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 },
   ongoingToggleText: { color: '#111827', fontWeight: '700', marginRight: 8, fontSize: 13 },
   ongoingBadge: { backgroundColor: '#FF6B6B', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
   ongoingBadgeText: { color: '#fff', fontWeight: '800', fontSize: 12 },
-
   ongoingOverlay: {
     position: 'absolute',
-    inset: 0,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.35)',
     zIndex: 900,
   },
@@ -2059,33 +1873,155 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
     backgroundColor: '#fff',
     zIndex: 950,
-   
     shadowColor: '#000',
     shadowOffset: { width: -6, height: 0 },
     shadowOpacity: 0.12,
     shadowRadius: 24,
     elevation: 8,
-    display: 'flex',
-    flexDirection: 'column',
     borderLeftWidth: 1,
     borderLeftColor: '#F3F4F6',
   },
   ongoingDrawerOpen: { transform: [{ translateX: 0 }] },
   ongoingDrawerClosed: { transform: [{ translateX: 400 }] },
-
   ongoingHeader: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   ongoingTitle: { fontWeight: '800', fontSize: 16 },
-
-  ongoingOrderCard: { borderWidth: 1, borderColor: '#F3F4F6', borderRadius: 10, padding: 12, marginBottom:  12, backgroundColor: '#FFFFFF' },
-  ongoingStatusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, backgroundColor: '#FEF3C7', alignItems: 'center' },
+  ongoingOrderCard: { borderWidth: 1, borderColor: '#F3F4F6', borderRadius: 10, padding: 12, marginBottom: 12, backgroundColor: '#FFFFFF' },
+  ongoingStatusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, alignItems: 'center' },
   ongoingActionBtn: { flex: 1, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center' },
   ongoingActionText: { color: '#111827', fontWeight: '700' },
   refreshBtn: { backgroundColor: '#111827', borderColor: '#111827' },
   refreshBtnText: { color: '#FFFFFF' },
   closeBtn: { backgroundColor: '#FF6B6B', borderColor: '#FF6B6B' },
   closeBtnText: { color: '#FFFFFF' },
+  
+  // Finalize modal styles
+  finalizeModalScroll: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+  },
+  finalizeModalContent: {
+    marginHorizontal: 0,
+    maxHeight: height * 0.85,
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
+  },
+  finalizeModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 16,
+    textAlign: 'left',
+  },
+  finalizeLabel: {
+    marginTop: 12,
+    marginBottom: 6,
+    fontWeight: '700',
+    color: '#111827',
+    fontSize: 14,
+  },
+  finalizeDropdownTrigger: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  finalizeDropdownText: {
+    flex: 1,
+    color: '#111827',
+    fontSize: 15,
+  },
+  finalizeDropdownIcon: {
+    color: '#6B7280',
+    marginLeft: 8,
+  },
+  finalizeInput: {
+    fontSize: 15,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  finalizeInputDisabled: {
+    backgroundColor: '#F3F4F6',
+    color: '#9CA3AF',
+  },
+  finalizeChangeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    marginTop: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  finalizeChangeLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  finalizeChangeValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#059669',
+  },
+  finalizeDateText: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginBottom: 16,
+    textAlign: 'left',
+  },
+  finalizeButtonRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  finalizeCancelButton: {
+    flex: 1,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+  },
+  finalizeCancelText: {
+    color: '#374151',
+    fontWeight: '700',
+    fontSize: 15,
+    textAlign: 'center',
+  },
+  finalizeConfirmButton: {
+    flex: 1,
+    backgroundColor: '#FF6B6B',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#FF6B6B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+    minHeight: 48,
+  },
+  finalizeConfirmButtonDisabled: {
+    opacity: 0.6,
+  },
+  finalizeConfirmText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 15,
+    textAlign: 'center',
+  },
+  
+  // Other missing styles
   label: { marginTop: 12, marginBottom: 6, fontWeight: '700', color: '#111827' },
- 
   summaryText: { marginVertical: 4, color: '#111827' },
   summarySubtitle: { marginTop: 12, fontWeight: '700', color: '#111827' },
   priceSummaryContainer: {
@@ -2134,85 +2070,30 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#FF6B6B',
   },
-  cartHeader: {
+  segmentedControl: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  cartTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  cartSubtitle: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginTop: 4,
-  },
-  hideCartText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FF6B6B',
-  },
-  hideCartButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FEE2E2',
-  },
-  cartItemsWrapper: {
-    maxHeight: height * 0.5,
-    marginBottom: 16,
-  },
-  cartItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    marginBottom: 12,
+    overflow: 'hidden',
+    marginBottom: 10,
   },
-  cartItemName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  cartItemMeta: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginTop: 4,
-  },
-  removeText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FF6B6B',
-  },
-  placeOrderButton: {
-    backgroundColor: '#FF6B6B',
-    paddingVertical: 14,
-    borderRadius: 10,
+  segmentButton: {
+    flex: 1,
+    paddingVertical: 10,
     alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#FF6B6B',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
+    backgroundColor: '#FFFFFF',
   },
-  placeOrderText: {
+  segmentButtonActive: {
+    backgroundColor: '#FF6B6B',
+  },
+  segmentButtonText: {
+    color: '#111827',
+    fontWeight: '700',
+  },
+  segmentButtonTextActive: {
     color: '#FFFFFF',
-    fontWeight: '800',
-    fontSize: 16,
   },
-
-  // small dropdown styles
   paymentDropdown: {
     paddingVertical: 6,
     borderWidth: 1,
@@ -2232,34 +2113,4 @@ const styles = StyleSheet.create({
   },
   paymentMethodTextActive: { color: '#FF6B6B', fontWeight: '800' },
   paymentMethodText: { color: '#111827', fontWeight: '700' },
-  clearCartButton: {
-    marginTop: 10,
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#F9FAFB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  clearCartButtonDanger: {
-    borderColor: '#FCA5A5',
-    backgroundColor: '#FEF2F2',
-    shadowColor: '#DC2626',
-    shadowOpacity: 0.1,
-  },
-  clearCartButtonText: {
-    color: '#374151',
-    fontWeight: '800',
-    fontSize: 15,
-    letterSpacing: 0.3,
-  },
-  clearCartButtonTextDanger: {
-    color: '#DC2626',
-  },
 });
