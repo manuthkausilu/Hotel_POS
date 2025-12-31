@@ -219,9 +219,11 @@ export default function OrderHistoryScreen() {
     try {
       setDetailLoading(true);
       setSelectedOrderDetail(null);
-      const raw = await getOrder(item.id);
-      // prefer .data if present; otherwise use the raw
-      const detail = raw?.data ?? raw;
+      const raw = (await getOrder(item.id)) as unknown;
+
+      // prefer .data if present; otherwise use the raw (supports APIs that wrap payload as { data: ... })
+      const detail = (raw as any)?.data ?? raw;
+
       setSelectedOrderDetail(detail);
       setDetailModalVisible(true);
     } catch (err: any) {
