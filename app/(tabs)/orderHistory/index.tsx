@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, ActivityIndicator, TouchableOpacity, Alert, StyleSheet, Button, Dimensions, Platform, StatusBar, TextInput, Modal, ScrollView, TouchableWithoutFeedback } from 'react-native';
+import { View, Text, FlatList, ActivityIndicator, TouchableOpacity, Alert, StyleSheet, Button, Dimensions, Platform, StatusBar, TextInput, Modal, ScrollView, SafeAreaView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { getOrders, getOrder, Order, PaginatedOrders } from '../../../services/orderHistoryService';
+import { getOrders, Order, PaginatedOrders } from '../../../services/orderHistoryService';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { fetchAndMapOrderToBillData } from '../../../services/bill/billMapper';
+import { printThermalBill, generateBillPDF } from '../../../services/bill/printerService';
+import * as Sharing from 'expo-sharing';
 
 // Add theme constants (from app/index.tsx)
 const PRIMARY = '#FF6B6B';
@@ -32,10 +35,12 @@ export default function OrderHistoryScreen() {
   const [filterFromDate, setFilterFromDate] = useState<string>(''); // YYYY-MM-DD
   const [filterToDate, setFilterToDate] = useState<string>(''); // YYYY-MM-DD
 
-  // New states for detail modal and detail loading
-  const [detailModalVisible, setDetailModalVisible] = useState<boolean>(false);
-  const [selectedOrderDetail, setSelectedOrderDetail] = useState<any>(null);
-  const [detailLoading, setDetailLoading] = useState<boolean>(false);
+  const [printingOrderId, setPrintingOrderId] = useState<number | null>(null);
+  
+  // New: bill preview modal state
+  const [billPreviewVisible, setBillPreviewVisible] = useState<boolean>(false);
+  const [previewBillData, setPreviewBillData] = useState<any>(null);
+  const [previewLoading, setPreviewLoading] = useState<boolean>(false);
 
   // Helper: get color for status badge
   const getStatusColor = (status?: string) => {
@@ -74,92 +79,6 @@ export default function OrderHistoryScreen() {
      const n = Number(String(v).replace(/[^0-9.-]+/g, ''));
      return isNaN(n) ? NaN : n;
   };
-
-  // Helper: safely extract items array from various possible payload shapes
-  const extractItems = (detail: any) => {
-    const d = detail?.data ?? detail; // support APIs that wrap detail in { data: ... }
-    if (!d) return [];
-    if (Array.isArray(d.items)) return d.items;
-    if (Array.isArray(d.order_items)) return d.order_items;
-    if (Array.isArray(d.products)) return d.products;
-    if (Array.isArray(d.line_items)) return d.line_items;
-    // fallback: find any array with item-like objects
-    for (const k of Object.keys(d)) {
-      const val = (d as any)[k];
-      if (Array.isArray(val) && val.length > 0) {
-        const first = val[0];
-        if (first && (first.name || first.product_name || first.item_name || first.qty || first.quantity)) return val;
-      }
-    }
-    return [];
-  };
-
-  // Helper: robust item name extractor - check several fields and nested paths
-  const getItemName = (it: any) => {
-     if (!it) return 'Item';
-     if (typeof it === 'string') return it;
- 
-     const get = (obj: any, path: string) => {
-       const parts = path.split('.');
-       let acc: any = obj;
-       for (const p of parts) {
-         if (acc === undefined || acc === null) return undefined;
-         if (Array.isArray(acc)) {
-           if (/^\d+$/.test(p)) acc = acc[parseInt(p, 10)];
-           else acc = acc[0];
-         } else {
-           acc = acc[p];
-         }
-       }
-       return acc;
-     };
- 
-     // Recursive search falls back to find recipe_name anywhere inside nested objects/arrays
-     const findKeyRecursive = (obj: any, keyToFind: string): any => {
-       if (obj === undefined || obj === null) return undefined;
-       if (typeof obj !== 'object') return undefined;
-       if (Array.isArray(obj)) {
-         for (const el of obj) {
-           const v = findKeyRecursive(el, keyToFind);
-           if (v !== undefined) return v;
-         }
-         return undefined;
-       }
-       if (Object.prototype.hasOwnProperty.call(obj, keyToFind) && typeof obj[keyToFind] === 'string' && obj[keyToFind].trim()) {
-         return obj[keyToFind].trim();
-       }
-       for (const k of Object.keys(obj)) {
-         const v = findKeyRecursive(obj[k], keyToFind);
-         if (v !== undefined) return v;
-       }
-       return undefined;
-     };
- 
-     const paths = [
-       'name', 'item_name', 'product_name', 'title', 'label',
-       'menu_item_name', 'unit_name', 'sku_name', 'variant.name',
-       'product.name', 'product.data.name', 'product?.data?.name',
-       'menu.name', 'menu.title',
-       // new: order_list_detail recipe fallback
-       'order_list_detail.recipe_name', 'order_list_detail.0.recipe_name',
-       'pivot.order_list_detail.recipe_name', 'pivot.order_list_detail.0.recipe_name'
-     ];
- 
-     for (const p of paths) {
-       const v = get(it, p.replace(/\?\./g, '.')); // basic optional path support
-       if (typeof v === 'string' && v.trim()) return v.trim();
-     }
- 
-     // If any recipe_name exists nested anywhere (e.g., order_list_detail or other structures), show it
-     const recipe = findKeyRecursive(it, 'recipe_name');
-     if (typeof recipe === 'string' && recipe.trim()) return recipe.trim();
- 
-     // Lastly, try nested object keys that are strings
-     for (const k of Object.keys(it)) {
-       if (typeof it[k] === 'string' && it[k].trim()) return it[k].trim();
-     }
-     return it?.id ? String(it.id) : 'Item';
-   };
 
   async function loadOrders(pageParam = 1, append = false) {
     if (append) setLoadingMore(true);
@@ -215,28 +134,81 @@ export default function OrderHistoryScreen() {
     loadOrders(1, false);
   }, []);
 
-  async function onPressOrder(item: Order) {
+  async function handlePrintBill(order: any) {
     try {
-      setDetailLoading(true);
-      setSelectedOrderDetail(null);
-      const raw = (await getOrder(item.id)) as unknown;
-
-      // prefer .data if present; otherwise use the raw (supports APIs that wrap payload as { data: ... })
-      const detail = (raw as any)?.data ?? raw;
-
-      setSelectedOrderDetail(detail);
-      setDetailModalVisible(true);
-    } catch (err: any) {
-      Alert.alert('Error', err?.message || 'Failed to load order');
+      setPrintingOrderId(order.id);
+      
+      const billData = await fetchAndMapOrderToBillData(order.id);
+      await printThermalBill(billData);
+      
+      // Success - silently complete (no alert)
+      console.log('Bill printed successfully for order:', order.id);
+    } catch (error) {
+      console.error('Print error:', error);
+      
+      const errorMessage = (error as Error).message;
+      // Only show error if it's not a user cancellation
+      if (!errorMessage.includes('cancelled') && !errorMessage.includes('Print cancelled')) {
+        Alert.alert('Print Error', errorMessage || 'Failed to print bill');
+      }
     } finally {
-      setDetailLoading(false);
+      setPrintingOrderId(null);
     }
   }
 
-  function closeDetailModal() {
-    setDetailModalVisible(false);
-    setSelectedOrderDetail(null);
+  // New: Handle view bill
+  async function handleViewBill(order: any) {
+    try {
+      setPreviewLoading(true);
+      setBillPreviewVisible(true);
+      
+      const billData = await fetchAndMapOrderToBillData(order.id);
+      setPreviewBillData(billData);
+    } catch (error) {
+      console.error('Load bill error:', error);
+      Alert.alert('Error', 'Failed to load bill preview');
+      setBillPreviewVisible(false);
+    } finally {
+      setPreviewLoading(false);
+    }
   }
+
+  // New: Print from preview
+  async function handlePrintFromPreview() {
+    if (!previewBillData) return;
+    
+    try {
+      setPrintingOrderId(previewBillData.orderId);
+      await printThermalBill(previewBillData);
+      console.log('Bill printed successfully');
+      setBillPreviewVisible(false);
+    } catch (error) {
+      const errorMessage = (error as Error).message;
+      if (!errorMessage.includes('cancelled') && !errorMessage.includes('Print cancelled')) {
+        Alert.alert('Print Error', errorMessage || 'Failed to print bill');
+      }
+    } finally {
+      setPrintingOrderId(null);
+    }
+  }
+
+  // Format currency for preview
+  const formatCurrencyPreview = (amount: number) => {
+    return `Rs ${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  // Format date for preview
+  const formatDatePreview = (dateStr: string) => {
+    const d = new Date(dateStr);
+    return d.toLocaleString('en-US', { 
+      year: 'numeric', 
+      month: '2-digit', 
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true 
+    });
+  };
 
   function onLoadMore() {
     if (!hasMore || loadingMore) return;
@@ -289,324 +261,372 @@ export default function OrderHistoryScreen() {
     );
   };
 
-  // responsive paddings
+  // responsive paddings - adjusted for SafeAreaView
   const { width, height } = Dimensions.get('window');
   const rightPadding = Math.max(12, Math.round(width * 0.04));
-  const baseTop = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 16) : 16;
-  const topPadding = baseTop + Math.round(height * 0.03);
-
-  // modal width centered on screen (responsive)
-  const modalWidth = Math.min(720, width - 48);
-
-  // items list max height so it can scroll inside the modal
-  const itemsMaxHeight = Math.min(420, Math.round(height * 0.35));
-  const itemsList = selectedOrderDetail ? extractItems(selectedOrderDetail) : [];
 
   return (
-    <View style={[styles.container, { paddingTop: topPadding, paddingRight: rightPadding }]}>
-      {/* Header with back button and centered title */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => {
-            if (navigation?.canGoBack && navigation.canGoBack()) navigation.goBack();
-            else Alert.alert('Back', 'No screen to go back to');
-          }}
-        >
-          <Text style={[styles.backText, { color: BACK_BUTTON_COLOR }]}>Back</Text>
-        </TouchableOpacity>
-        <Text numberOfLines={1} style={[styles.headerTitle, { color: TEXT_PRIMARY }]}>Order History</Text>
-        {/* Filter toggle */}
-        <TouchableOpacity
-          style={[styles.filterButton, filtersOpen && styles.filterButtonActive]}
-          onPress={() => setFiltersOpen(!filtersOpen)}
-        >
-          <MaterialCommunityIcons
-            name={filtersOpen ? 'filter' : 'filter-outline'}
-            size={25}
-            color={filtersOpen ? '#fff' : '#6b7280'}
-          />
-        </TouchableOpacity>
-      </View>
-
-      {/* Filter panel (toggleable) */}
-      {filtersOpen && (
-        <View style={styles.filterPanel}>
-          {/* Type filter */}
-          <View style={styles.filterRow}>
-            <Text style={styles.filterLabel}>Type</Text>
-            <View style={styles.pillsRow}>
-              <TouchableOpacity style={[styles.pill, !filterType && styles.pillActive]} onPress={() => setFilterType('')}>
-                <Text style={[styles.pillText, !filterType && styles.pillTextActive]}>All</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.pill, filterType === 'Take Away' && styles.pillActive]} onPress={() => setFilterType('Take Away')}>
-                <Text style={[styles.pillText, filterType === 'Take Away' && styles.pillTextActive]}>Take Away</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.pill, filterType === 'Dine In' && styles.pillActive]} onPress={() => setFilterType('Dine In')}>
-                <Text style={[styles.pillText, filterType === 'Dine In' && styles.pillTextActive]}>Dine In</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Status filter */}
-          <View style={styles.filterRow}>
-            <Text style={styles.filterLabel}>Status</Text>
-            <View style={styles.pillsRow}>
-              <TouchableOpacity style={[styles.pill, !filterStatus && styles.pillActive]} onPress={() => setFilterStatus('')}>
-                <Text style={[styles.pillText, !filterStatus && styles.pillTextActive]}>All</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.pill, filterStatus === 'Complete' && styles.pillActive]} onPress={() => setFilterStatus('Complete')}>
-                <Text style={[styles.pillText, filterStatus === 'Complete' && styles.pillTextActive]}>Complete</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.pill, filterStatus === 'Processing' && styles.pillActive]} onPress={() => setFilterStatus('Processing')}>
-                <Text style={[styles.pillText, filterStatus === 'Processing' && styles.pillTextActive]}>Processing</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Date filters (manual input YYYY-MM-DD) */}
-          <View style={styles.filterRow}>
-            <Text style={styles.filterLabel}>From</Text>
-            <TextInput style={styles.dateInput} placeholder="YYYY-MM-DD" placeholderTextColor="#9CA3AF" value={filterFromDate} onChangeText={setFilterFromDate} />
-            <Text style={[styles.filterLabel, { marginLeft: 12 }]}>To</Text>
-            <TextInput style={styles.dateInput} placeholder="YYYY-MM-DD" placeholderTextColor="#9CA3AF" value={filterToDate} onChangeText={setFilterToDate} />
-          </View>
-
-          {/* Actions */}
-          <View style={styles.filterActions}>
-            <TouchableOpacity style={[styles.actionButton, styles.resetButton]} onPress={resetFilters}>
-              <Text style={styles.resetText}>Reset</Text>
+    <>
+      <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
+      <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.container, { paddingRight: rightPadding }]}>
+          {/* Header with back button and centered title */}
+          <View style={styles.header}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => {
+                if (navigation?.canGoBack && navigation.canGoBack()) navigation.goBack();
+                else Alert.alert('Back', 'No screen to go back to');
+              }}
+            >
+              <Text style={[styles.backText, { color: BACK_BUTTON_COLOR }]}>Back</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionButton, styles.applyButton]} onPress={applyFilters}>
-              <Text style={styles.applyText}>Apply</Text>
+            <Text numberOfLines={1} style={[styles.headerTitle, { color: TEXT_PRIMARY }]}>Order History</Text>
+            {/* Filter toggle */}
+            <TouchableOpacity
+              style={[styles.filterButton, filtersOpen && styles.filterButtonActive]}
+              onPress={() => setFiltersOpen(!filtersOpen)}
+            >
+              <MaterialCommunityIcons
+                name={filtersOpen ? 'filter' : 'filter-outline'}
+                size={25}
+                color={filtersOpen ? '#fff' : '#6b7280'}
+              />
             </TouchableOpacity>
           </View>
-        </View>
-      )}
 
-      {loading && !refreshing && !loadingMore && <ActivityIndicator style={{ marginTop: 16 }} size="large" color={PRIMARY} />}
-
-      {error ? (
-        <Text style={styles.errorText}>{error}</Text>
-      ) : (
-        <FlatList
-          data={orders}
-          keyExtractor={(item) => String(item.id)}
-          contentContainerStyle={{ paddingBottom: 24, paddingTop: Math.round(topPadding * 0.15) }}
-          ListEmptyComponent={() =>
-            !loading ? <Text style={[styles.emptyText, { color: '#6b7280' }]}>No orders found</Text> : null
-          }
-          renderItem={({ item }) => {
-            const statusStyle = getStatusColor(item.status);
-            const totalAmount = (item as any).total_amount ?? (item as any).total ?? (item as any).price ?? '';
-            const idLabel = item.order_id ? item.order_id.toString() : `#${item.id}`;
-            const initials = (item.customer_name || 'U').split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase();
-            let amountText = '';
-            if (totalAmount !== '' && totalAmount !== null && totalAmount !== undefined) {
-              const n = Number(String(totalAmount).replace(/,/g, ''));
-              amountText = isNaN(n) ? `Rs ${String(totalAmount)}` : `Rs ${n.toLocaleString('en-IN')}`;
-            }
-
-            return (
-              <TouchableOpacity
-                activeOpacity={0.85}
-                style={[styles.card, { marginRight: rightPadding / 2, marginTop: Math.max(10, Math.round(height * 0.012)) }]}
-                onPress={() => onPressOrder(item)}
-              >
-                <View style={styles.leftAvatar}>
-                  <Text style={styles.avatarText}>{initials}</Text>
-                </View>
-
-                <View style={styles.cardCenter}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={[styles.orderId, { color: TEXT_PRIMARY }]} numberOfLines={1}>{idLabel}</Text>
-                    <Text style={[styles.amount]} numberOfLines={1}>{amountText}</Text>
-                  </View>
-                  <Text style={styles.customer}>{item.customer_name || 'Unknown customer'}</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, justifyContent: 'space-between' }}>
-                    <Text style={styles.meta}>{item.type ? `${item.type} • ` : ''}{formatDate(item.created_at)}</Text>
-                    <View style={[styles.badge, { backgroundColor: statusStyle.background }]}>
-                      <Text style={[styles.badgeText, { color: statusStyle.color }]}>{(item.status || '').toString().replace(/_/g, ' ')}</Text>
-                    </View>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            );
-          }}
-          ListFooterComponent={renderFooter}
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-        />
-      )}
-
-      {/* Order detail modal */}
-      <Modal visible={detailModalVisible} transparent animationType="fade" onRequestClose={closeDetailModal}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={closeDetailModal}>
-          <TouchableWithoutFeedback>
-            <View style={[styles.modalCard, { width: modalWidth }]}>
-              <View style={styles.modalHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text numberOfLines={1} style={styles.modalTitle}>
-                    {(selectedOrderDetail?.order_id ? `#${selectedOrderDetail.order_id}` : `#${selectedOrderDetail?.id}`) || 'Order'}
-                  </Text>
-                  <Text style={styles.modalSubtitle}>{selectedOrderDetail?.customer_name || 'Unknown customer'}</Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <View style={[styles.badge, { backgroundColor: getStatusColor(selectedOrderDetail?.status).background }]}>
-                    <Text style={[styles.badgeText, { color: getStatusColor(selectedOrderDetail?.status).color }]}>{(selectedOrderDetail?.status || '').toString().replace(/_/g, ' ')}</Text>
-                  </View>
-                  {/* removed inline "Close" text button - moved to top-right highlighted icon */}
+          {/* Filter panel (toggleable) */}
+          {filtersOpen && (
+            <View style={styles.filterPanel}>
+              {/* Type filter */}
+              <View style={styles.filterRow}>
+                <Text style={styles.filterLabel}>Type</Text>
+                <View style={styles.pillsRow}>
+                  <TouchableOpacity style={[styles.pill, !filterType && styles.pillActive]} onPress={() => setFilterType('')}>
+                    <Text style={[styles.pillText, !filterType && styles.pillTextActive]}>All</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.pill, filterType === 'Take Away' && styles.pillActive]} onPress={() => setFilterType('Take Away')}>
+                    <Text style={[styles.pillText, filterType === 'Take Away' && styles.pillTextActive]}>Take Away</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.pill, filterType === 'Dine In' && styles.pillActive]} onPress={() => setFilterType('Dine In')}>
+                    <Text style={[styles.pillText, filterType === 'Dine In' && styles.pillTextActive]}>Dine In</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
 
-              {/* New highlighted close button at top-right of modal */}
-              <TouchableOpacity style={styles.modalCloseTop} onPress={closeDetailModal} accessibilityLabel="Close order details">
-                <MaterialCommunityIcons name="close" size={18} color="#fff" />
-              </TouchableOpacity>
+              {/* Status filter */}
+              <View style={styles.filterRow}>
+                <Text style={styles.filterLabel}>Status</Text>
+                <View style={styles.pillsRow}>
+                  <TouchableOpacity style={[styles.pill, !filterStatus && styles.pillActive]} onPress={() => setFilterStatus('')}>
+                    <Text style={[styles.pillText, !filterStatus && styles.pillTextActive]}>All</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.pill, filterStatus === 'Complete' && styles.pillActive]} onPress={() => setFilterStatus('Complete')}>
+                    <Text style={[styles.pillText, filterStatus === 'Complete' && styles.pillTextActive]}>Complete</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.pill, filterStatus === 'Processing' && styles.pillActive]} onPress={() => setFilterStatus('Processing')}>
+                    <Text style={[styles.pillText, filterStatus === 'Processing' && styles.pillTextActive]}>Processing</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
 
-              {detailLoading && <ActivityIndicator style={{ marginTop: 12 }} size="small" color={PRIMARY} />}
+              {/* Date filters (manual input YYYY-MM-DD) */}
+              <View style={styles.filterRow}>
+                <Text style={styles.filterLabel}>From</Text>
+                <TextInput style={styles.dateInput} placeholder="YYYY-MM-DD" placeholderTextColor="#9CA3AF" value={filterFromDate} onChangeText={setFilterFromDate} />
+                <Text style={[styles.filterLabel, { marginLeft: 12 }]}>To</Text>
+                <TextInput style={styles.dateInput} placeholder="YYYY-MM-DD" placeholderTextColor="#9CA3AF" value={filterToDate} onChangeText={setFilterToDate} />
+              </View>
 
-              {!detailLoading && (
-                <ScrollView style={styles.modalContent}>
-                  {/* Customer contact & meta */}
-                  <View style={styles.section}>
-                    <Text style={styles.sectionLabel}>Customer</Text>
-                    <Text style={styles.sectionValue}>{selectedOrderDetail?.customer_name || '—'}</Text>
-                    {selectedOrderDetail?.customer_phone ? (
-                      <Text style={[styles.sectionValue, { marginTop: 4 }]}>{selectedOrderDetail.customer_phone}</Text>
-                    ) : null}
-                    <Text style={[styles.meta, { marginTop: 6 }]}>{selectedOrderDetail?.type ? `${selectedOrderDetail.type} • ` : ''}{formatDate(selectedOrderDetail?.created_at)}</Text>
-                  </View>
+              {/* Actions */}
+              <View style={styles.filterActions}>
+                <TouchableOpacity style={[styles.actionButton, styles.resetButton]} onPress={resetFilters}>
+                  <Text style={styles.resetText}>Reset</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.actionButton, styles.applyButton]} onPress={applyFilters}>
+                  <Text style={styles.applyText}>Apply</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
 
-                  {/* Items */}
-                  <View style={styles.section}>
-                    <Text style={styles.sectionLabel}>Items</Text>
-                    {itemsList.length === 0 ? (
-                      <Text style={[styles.sectionValue, { color: '#6b7280' }]}>No items</Text>
-                    ) : (
-                      <View style={[styles.itemsContainer, { maxHeight: itemsMaxHeight }]}>
-                        {itemsList.map((it: any, idx: number) => {
-                          const qty = Number(it.qty ?? it.quantity ?? it.qty_sold ?? it.qty_ordered ?? 0);
-                          const price = Number(String(it.price ?? it.unit_price ?? it.rate ?? it.price_per_item ?? 0).replace(/,/g, ''));
-                          const lineTotal = !isNaN(qty) && !isNaN(price) ? qty * price : (it.total ?? it.line_total ?? '');
-                          return (
-                            <View key={it?.id ?? idx} style={styles.itemRow}>
-                              <View style={{ flex: 1 }}>
-                                <Text style={styles.itemName} numberOfLines={2}>{getItemName(it)}</Text>
-                                {it.notes ? <Text style={[styles.meta, { marginTop: 2 }]}>{it.notes}</Text> : null}
-                              </View>
-                              <View style={{ marginLeft: 12, alignItems: 'flex-end' }}>
-                                <Text style={styles.itemQty}>x{isNaN(qty) ? (it.qty ?? it.quantity ?? '-') : qty}</Text>
-                                <Text style={styles.itemPrice}>{formatCurrency(lineTotal)}</Text>
-                              </View>
-                            </View>
-                          );
-                        })}
-                      </View>
-                    )}
-                  </View>
+          {loading && !refreshing && !loadingMore && <ActivityIndicator style={{ marginTop: 16 }} size="large" color={PRIMARY} />}
 
-                  {/* Summary totals */}
-                  <View style={styles.section}>
-                    <Text style={styles.sectionLabel}>Summary</Text>
-                    <View style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>Subtotal</Text>
-                      <Text style={styles.summaryValue}>{formatCurrency(selectedOrderDetail?.subtotal ?? selectedOrderDetail?.sub_total ?? selectedOrderDetail?.amount ?? selectedOrderDetail?.total_before_tax)}</Text>
+          {error ? (
+            <Text style={styles.errorText}>{error}</Text>
+          ) : (
+            <FlatList
+              data={orders}
+              keyExtractor={(item) => String(item.id)}
+              contentContainerStyle={{ paddingBottom: 24, paddingTop: 8 }}
+              ListEmptyComponent={() =>
+                !loading ? <Text style={[styles.emptyText, { color: '#6b7280' }]}>No orders found</Text> : null
+              }
+              renderItem={({ item }) => {
+                const statusStyle = getStatusColor(item.status);
+                const totalAmount = (item as any).total_amount ?? (item as any).total ?? (item as any).price ?? '';
+                const idLabel = item.order_id ? item.order_id.toString() : `#${item.id}`;
+                const initials = (item.customer_name || 'U').split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase();
+                let amountText = '';
+                if (totalAmount !== '' && totalAmount !== null && totalAmount !== undefined) {
+                  const n = Number(String(totalAmount).replace(/,/g, ''));
+                  amountText = isNaN(n) ? `Rs ${String(totalAmount)}` : `Rs ${n.toLocaleString('en-IN')}`;
+                }
+                
+                const isPrinting = printingOrderId === item.id;
+
+                return (
+                  <View style={[styles.card, { marginRight: rightPadding / 2, marginTop: Math.max(10, Math.round(height * 0.012)) }]}>
+                    <View style={styles.leftAvatar}>
+                      <Text style={styles.avatarText}>{initials}</Text>
                     </View>
-                    {selectedOrderDetail?.tax_amount ? (
-                      <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Tax</Text>
-                        <Text style={styles.summaryValue}>{formatCurrency(selectedOrderDetail.tax_amount)}</Text>
-                      </View>
-                    ) : null}
 
-                    {/* Service charge (various possible fields) */}
-                    {(() => {
-                      const svcRaw = selectedOrderDetail?.service_charge ?? selectedOrderDetail?.serviceCharge ?? selectedOrderDetail?.service_fee ?? selectedOrderDetail?.service_charge_amount ?? selectedOrderDetail?.service_charge_value;
-                      const svcNum = parseNumber(svcRaw);
-                      const showSvc = !isNaN(svcNum) ? formatCurrency(svcNum) : svcRaw ? formatCurrency(String(svcRaw)) : '';
-                      return showSvc ? (
-                        <View style={styles.summaryRow}>
-                          <Text style={styles.summaryLabel}>Service charge</Text>
-                          <Text style={styles.summaryValue}>{showSvc}</Text>
+                    <View style={styles.cardCenter}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={[styles.orderId, { color: TEXT_PRIMARY }]} numberOfLines={1}>{idLabel}</Text>
+                        <Text style={[styles.amount]} numberOfLines={1}>{amountText}</Text>
+                      </View>
+                      <Text style={styles.customer}>{item.customer_name || 'Unknown customer'}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, justifyContent: 'space-between' }}>
+                        <Text style={styles.meta}>{item.type ? `${item.type} • ` : ''}{formatDate(item.created_at)}</Text>
+                        <View style={[styles.badge, { backgroundColor: statusStyle.background }]}>
+                          <Text style={[styles.badgeText, { color: statusStyle.color }]}>{(item.status || '').toString().replace(/_/g, ' ')}</Text>
                         </View>
-                      ) : null;
-                    })()}
-
-                    {selectedOrderDetail?.discount ? (
-                      <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Discount</Text>
-                        <Text style={[styles.summaryValue, { color: PRIMARY }]}>{formatCurrency(selectedOrderDetail.discount)}</Text>
                       </View>
-                    ) : null}
-                    <View style={[styles.summaryRow, { marginTop: 6 }]}>
-                      <Text style={[styles.summaryLabel, { fontWeight: '800' }]}>Total</Text>
-                      <Text style={[styles.summaryValue, { fontWeight: '800' }]}>{formatCurrency(selectedOrderDetail?.total_amount ?? selectedOrderDetail?.total ?? selectedOrderDetail?.price)}</Text>
-                    </View>
+                      
+                      {/* Action buttons row */}
+                      <View style={styles.actionButtonsRow}>
+                        <TouchableOpacity
+                          style={[styles.viewBillButton]}
+                          onPress={() => handleViewBill(item)}
+                          disabled={isPrinting}
+                        >
+                          <MaterialCommunityIcons name="file-document-outline" size={16} color="#2563EB" />
+                          <Text style={styles.viewBillText}>View Bill</Text>
+                        </TouchableOpacity>
 
-                    {/* Paid amount and due calculation */}
-                    {(() => {
-                      const paidRaw = selectedOrderDetail?.paid_amount ?? selectedOrderDetail?.paid ?? selectedOrderDetail?.amount_paid ?? selectedOrderDetail?.paid_value;
-                      const paidNum = parseNumber(paidRaw);
-                      if (isNaN(paidNum)) {
-                        // if raw string shows something, still display it
-                        if (paidRaw) {
-                          return (
-                            <View style={styles.summaryRow}>
-                              <Text style={styles.summaryLabel}>Paid</Text>
-                              <Text style={[styles.summaryValue, { color: PRIMARY }]}>{formatCurrency(String(paidRaw))}</Text>
-                            </View>
-                          );
-                        }
-                        return null;
-                      }
-                      // show 'Paid' value
-                      const totalNum = parseNumber(selectedOrderDetail?.total_amount ?? selectedOrderDetail?.total ?? selectedOrderDetail?.price ?? selectedOrderDetail?.grand_total);
-                      const dueNum = !isNaN(totalNum) ? Math.max(0, totalNum - paidNum) : NaN;
-                      return (
-                        <>
-                          <View style={styles.summaryRow}>
-                            <Text style={styles.summaryLabel}>Paid</Text>
-                            <Text style={[styles.summaryValue, { color: PRIMARY }]}>{formatCurrency(paidNum)}</Text>
+                        <TouchableOpacity
+                          style={[styles.printButtonCompact, isPrinting && styles.printButtonDisabled]}
+                          onPress={() => handlePrintBill(item)}
+                          disabled={isPrinting}
+                        >
+                          <MaterialCommunityIcons name="printer" size={16} color="#fff" />
+                          <Text style={styles.printButtonText}>
+                            {isPrinting ? 'Printing...' : 'Print'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                );
+              }}
+              ListFooterComponent={renderFooter}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+            />
+          )}
+
+          {/* Bill Preview Modal */}
+          <Modal visible={billPreviewVisible} animationType="slide" transparent={false}>
+            <SafeAreaView style={styles.billPreviewSafeArea}>
+              <View style={styles.billPreviewContainer}>
+                <View style={styles.billPreviewHeader}>
+                  <Text style={styles.billPreviewTitle}>Bill Preview</Text>
+                  <TouchableOpacity 
+                    onPress={() => setBillPreviewVisible(false)} 
+                    style={styles.closeButton}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.closeButtonText}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {previewLoading ? (
+                  <View style={styles.billPreviewLoading}>
+                    <ActivityIndicator size="large" color={PRIMARY} />
+                    <Text style={styles.billPreviewLoadingText}>Loading bill...</Text>
+                  </View>
+                ) : previewBillData ? (
+                  <>
+                    <ScrollView style={styles.billPreviewScroll}>
+                      <View style={styles.billPreviewContent}>
+                        {/* Hotel Header */}
+                        <View style={styles.billPreviewSection}>
+                          <Text style={styles.billHotelName}>{previewBillData.hotelName}</Text>
+                          {previewBillData.hotelAddress && <Text style={styles.billHotelInfo}>{previewBillData.hotelAddress}</Text>}
+                          {(previewBillData.hotelCity || previewBillData.hotelCountry) && (
+                            <Text style={styles.billHotelInfo}>
+                              {[previewBillData.hotelCity, previewBillData.hotelCountry].filter(Boolean).join(', ')}
+                            </Text>
+                          )}
+                          {previewBillData.hotelPhone && <Text style={styles.billHotelInfo}>Tel: {previewBillData.hotelPhone}</Text>}
+                          {previewBillData.hotelEmail && <Text style={styles.billHotelInfo}>{previewBillData.hotelEmail}</Text>}
+                        </View>
+
+                        <View style={styles.billDivider} />
+
+                        {/* Order Info */}
+                        <View style={styles.billPreviewSection}>
+                          <View style={styles.billInfoRow}>
+                            <Text style={styles.billInfoLabel}>Invoice ID:</Text>
+                            <Text style={styles.billInfoValue}>#{previewBillData.orderId}</Text>
                           </View>
-                          {!isNaN(dueNum) && (
-                            <View style={styles.summaryRow}>
-                              <Text style={styles.summaryLabel}>Due</Text>
-                              <Text style={[styles.summaryValue, { color: dueNum > 0 ? '#DC2626' : PRIMARY, fontWeight: '800' }]}>{formatCurrency(dueNum)}</Text>
+                          <View style={styles.billInfoRow}>
+                            <Text style={styles.billInfoLabel}>Date:</Text>
+                            <Text style={styles.billInfoValue}>{formatDatePreview(previewBillData.orderDate)}</Text>
+                          </View>
+                          <View style={styles.billInfoRow}>
+                            <Text style={styles.billInfoLabel}>Type:</Text>
+                            <Text style={styles.billInfoValue}>{previewBillData.orderType}</Text>
+                          </View>
+                          <View style={styles.billInfoRow}>
+                            <Text style={styles.billInfoLabel}>Customer:</Text>
+                            <Text style={styles.billInfoValue}>{previewBillData.customerName}</Text>
+                          </View>
+                          {previewBillData.roomNumber && (
+                            <View style={styles.billInfoRow}>
+                              <Text style={styles.billInfoLabel}>Room:</Text>
+                              <Text style={styles.billInfoValue}>{previewBillData.roomNumber}</Text>
                             </View>
                           )}
-                        </>
-                      );
-                    })()}
-                  </View>
+                          {previewBillData.tableNumber && (
+                            <View style={styles.billInfoRow}>
+                              <Text style={styles.billInfoLabel}>Table:</Text>
+                              <Text style={styles.billInfoValue}>{previewBillData.tableNumber}</Text>
+                            </View>
+                          )}
+                          <View style={styles.billInfoRow}>
+                            <Text style={styles.billInfoLabel}>Cashier:</Text>
+                            <Text style={styles.billInfoValue}>{previewBillData.cashier}</Text>
+                          </View>
+                        </View>
 
-                  {/* Order notes, payment method, etc */}
-                  {selectedOrderDetail?.notes ? (
-                    <View style={styles.section}>
-                      <Text style={styles.sectionLabel}>Notes</Text>
-                      <Text style={styles.sectionValue}>{selectedOrderDetail.notes}</Text>
+                        <View style={styles.billDivider} />
+
+                        {/* Items */}
+                        <View style={styles.billPreviewSection}>
+                          <Text style={styles.billSectionTitle}>Items</Text>
+                          {previewBillData.items.map((item: any, idx: number) => (
+                            <View key={idx} style={styles.billItemRow}>
+                              <View style={styles.billItemLeft}>
+                                <Text style={styles.billItemName}>{item.name}</Text>
+                                <Text style={styles.billItemQty}>{item.quantity} x {formatCurrencyPreview(item.price)}</Text>
+                              </View>
+                              <Text style={styles.billItemTotal}>{formatCurrencyPreview(item.total)}</Text>
+                            </View>
+                          ))}
+                        </View>
+
+                        <View style={styles.billDivider} />
+
+                        {/* Totals */}
+                        <View style={styles.billPreviewSection}>
+                          <View style={styles.billTotalRow}>
+                            <Text style={styles.billTotalLabel}>Subtotal:</Text>
+                            <Text style={styles.billTotalValue}>{formatCurrencyPreview(previewBillData.subtotal)}</Text>
+                          </View>
+                          {previewBillData.serviceCharge > 0 && (
+                            <View style={styles.billTotalRow}>
+                              <Text style={styles.billTotalLabel}>
+                                Service Charge{previewBillData.serviceChargeRate ? ` (${previewBillData.serviceChargeRate.toFixed(1)}%)` : ''}:
+                              </Text>
+                              <Text style={styles.billTotalValue}>{formatCurrencyPreview(previewBillData.serviceCharge)}</Text>
+                            </View>
+                          )}
+                          <View style={[styles.billTotalRow, styles.billGrandTotal]}>
+                            <Text style={styles.billGrandTotalLabel}>TOTAL:</Text>
+                            <Text style={styles.billGrandTotalValue}>{formatCurrencyPreview(previewBillData.total)}</Text>
+                          </View>
+                        </View>
+
+                        <View style={styles.billDivider} />
+
+                        {/* Payment */}
+                        <View style={styles.billPreviewSection}>
+                          <View style={styles.billTotalRow}>
+                            <Text style={styles.billTotalLabel}>Payment Method:</Text>
+                            <Text style={styles.billTotalValue}>{previewBillData.paymentMethod}</Text>
+                          </View>
+                          <View style={styles.billTotalRow}>
+                            <Text style={styles.billTotalLabel}>Paid:</Text>
+                            <Text style={styles.billTotalValue}>{formatCurrencyPreview(previewBillData.paidAmount)}</Text>
+                          </View>
+                          
+                          {/* Show given amount if payment method is Cash */}
+                          {previewBillData.paymentMethod === 'Cash' && previewBillData.givenAmount > 0 && (
+                            <View style={styles.billTotalRow}>
+                              <Text style={styles.billTotalLabel}>Given Amount:</Text>
+                              <Text style={styles.billTotalValue}>{formatCurrencyPreview(previewBillData.givenAmount)}</Text>
+                            </View>
+                          )}
+                          
+                          {/* Show change amount if payment method is Cash and change exists */}
+                          {previewBillData.paymentMethod === 'Cash' && previewBillData.changeAmount > 0 && (
+                            <View style={styles.billTotalRow}>
+                              <Text style={styles.billTotalLabel}>Change:</Text>
+                              <Text style={[styles.billTotalValue]}>
+                                {formatCurrencyPreview(previewBillData.changeAmount)}
+                              </Text>
+                            </View>
+                          )}
+                          
+                          {/* Calculate balance on demand */}
+                          {(() => {
+                            const balance = previewBillData.total - previewBillData.paidAmount;
+                            return balance !== 0 ? (
+                              <View style={styles.billTotalRow}>
+                                <Text style={styles.billTotalLabel}>{balance > 0 ? 'Balance Due:' : 'Change:'}</Text>
+                                <Text style={[styles.billTotalValue, { color: balance > 0 ? '#DC2626' : '#059669' }]}>
+                                  {formatCurrencyPreview(Math.abs(balance))}
+                                </Text>
+                              </View>
+                            ) : null;
+                          })()}
+                        </View>
+
+                        <View style={styles.billFooter}>
+                          <Text style={styles.billThankYou}>Thank You!</Text>
+                          <Text style={styles.billFooterText}>Visit Again</Text>
+                        </View>
+                      </View>
+                    </ScrollView>
+
+                    {/* Print button at bottom */}
+                    <View style={styles.billPreviewActions}>
+                      <TouchableOpacity 
+                        style={styles.billPrintButton} 
+                        onPress={handlePrintFromPreview}
+                        disabled={!!printingOrderId}
+                      >
+                        <MaterialCommunityIcons name="printer" size={20} color="#fff" />
+                        <Text style={styles.billPrintButtonText}>
+                          {printingOrderId ? 'Printing...' : 'Print Bill'}
+                        </Text>
+                      </TouchableOpacity>
                     </View>
-                  ) : null}
-
-                  {selectedOrderDetail?.payment_method ? (
-                    <View style={styles.section}>
-                      <Text style={styles.sectionLabel}>Payment</Text>
-                      <Text style={styles.sectionValue}>{selectedOrderDetail.payment_method}</Text>
-                    </View>
-                  ) : null}
-
-                </ScrollView>
-              )}
-            </View>
-          </TouchableWithoutFeedback>
-        </TouchableOpacity>
-      </Modal>
-    </View>
+                  </>
+                ) : null}
+              </View>
+            </SafeAreaView>
+          </Modal>
+        </View>
+      </SafeAreaView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingLeft: 12, paddingBottom: 12, backgroundColor: '#F8FAFC' },
+  safeArea: { 
+    flex: 1, 
+    backgroundColor: '#F8FAFC',
+  },
+  
+  container: { 
+    flex: 1, 
+    paddingLeft: 12, 
+    paddingBottom: 12, 
+    backgroundColor: '#F8FAFC',
+  },
 
   // Header styles: slightly more compact, modern
   header: {
@@ -616,6 +636,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     position: 'relative',
     marginBottom: 6,
+    marginTop: 8,
   },
   backButton: {
     position: 'absolute',
@@ -637,9 +658,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: 'rgba(15,23,42,0.04)',
-    // Android shadow
     elevation: 2,
-    // iOS shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
@@ -658,21 +677,18 @@ const styles = StyleSheet.create({
   },
   avatarText: { fontWeight: '700', color: PRIMARY },
 
-  // content
   cardCenter: { flex: 1 },
   orderId: { fontWeight: '700', fontSize: 15 },
   customer: { color: '#374151', marginTop: 4, fontSize: 13 },
   meta: { color: '#6b7280', fontSize: 12 },
   amount: { color: '#111827', fontWeight: '700', fontSize: 14 },
 
-  // status badge
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
   badgeText: { fontSize: 12, fontWeight: '700', textTransform: 'capitalize' },
 
   errorText: { color: 'red', marginTop: 12 },
   emptyText: { marginTop: 16, color: '#6b7280', textAlign: 'center' },
 
-  // Filter panel styles
   filterPanel: {
     backgroundColor: '#fff',
     borderRadius: 10,
@@ -680,7 +696,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: 'rgba(15,23,42,0.04)',
-    // small elevation for card feel
     elevation: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -695,7 +710,7 @@ const styles = StyleSheet.create({
   },
   filterLabel: {
     fontSize: 15,
-    fontWeight: '800', // Increased boldness for main filter topics
+    fontWeight: '800',
     color: '#111827',
     marginRight: 8
   },
@@ -729,82 +744,297 @@ const styles = StyleSheet.create({
   resetButton: { marginRight: 8, backgroundColor: 'transparent' },
   resetText: { color: '#6b7280', fontWeight: '700' },
 
-  // Modal / detail styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.35)',
-    justifyContent: 'center', // center vertically
-    alignItems: 'center',     // center horizontally
-  },
-  modalCard: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingTop: 16, // small padding for top area; close button contained inside the card
-    paddingBottom: 44,
-    paddingHorizontal: 16,
-    maxHeight: '85%',
-    // subtle shadow feel
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-
-  // **NEW** highlighted close icon on top-right (circular)
-  modalCloseTop: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: PRIMARY,
-    borderRadius: 999,
-    padding: 8,
-    zIndex: 20,
-    // minor elevation/shadow for the highlight
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-
-  // remove old modalClose style; keep other modal styles
-  modalHeader: {
+  // Action buttons row
+  actionButtonsRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-    paddingRight: 48, // create more space to avoid overlap with top-right icon
+    gap: 8,
+    marginTop: 10,
   },
 
-  modalTitle: { fontSize: 18, fontWeight: '800', color: '#111827' },
-  modalSubtitle: { fontSize: 13, color: '#6b7280', marginTop: 2 },
-  modalContent: { marginTop: 8 },
-
-  section: { marginBottom: 12 },
-  sectionLabel: { fontSize: 13, fontWeight: '800', color: '#111827', marginBottom: 6 },
-  sectionValue: { fontSize: 14, color: '#374151' },
-
-  itemRow: {
+  viewBillButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EFF6FF',
     paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderColor: 'rgba(15,23,42,0.04)',
-  },
-  itemName: { fontWeight: '700', color: '#111827', flexShrink: 1 },
-  itemQty: { fontSize: 12, color: '#6b7280' },
-  itemPrice: { fontSize: 13, fontWeight: '700', color: '#111827', marginTop: 6 },
-
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
-  summaryLabel: { color: '#6b7280', fontSize: 13 },
-  summaryValue: { color: '#111827', fontSize: 13 },
-
-  itemsContainer: {
-    width: '100%',
+    paddingHorizontal: 12,
     borderRadius: 8,
-    marginBottom: 6,
-    overflow: 'hidden'
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    gap: 6,
+  },
+
+  viewBillText: {
+    color: '#2563EB',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  printButtonCompact: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: PRIMARY,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    gap: 6,
+  },
+  
+  printButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  
+  printButtonDisabled: {
+    opacity: 0.5,
+  },
+
+  // Bill Preview Modal Styles
+  billPreviewSafeArea: {
+    flex: 1,
+    backgroundColor: PRIMARY,
+  },
+
+  billPreviewContainer: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+
+  billPreviewHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: PRIMARY,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+
+  billPreviewTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#fff',
+  },
+
+  closeButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+
+  closeButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+
+  billPreviewLoading: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+
+  billPreviewLoadingText: {
+    marginTop: 12,
+    color: '#6B7280',
+    fontSize: 14,
+  },
+
+  billPreviewScroll: {
+    flex: 1,
+  },
+
+  billPreviewContent: {
+    backgroundColor: '#fff',
+    margin: 16,
+    borderRadius: 12,
+    padding: 20,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+  },
+
+  billPreviewSection: {
+    marginBottom: 16,
+  },
+
+  billHotelName: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+
+  billHotelInfo: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+
+  billDivider: {
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    borderStyle: 'dashed',
+    marginVertical: 16,
+  },
+
+  billSectionTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 12,
+  },
+
+  billInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+
+  billInfoLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+
+  billInfoValue: {
+    fontSize: 14,
+    color: '#111827',
+    fontWeight: '700',
+  },
+
+  billItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+
+  billItemLeft: {
+    flex: 1,
+    marginRight: 12,
+  },
+
+  billItemName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+
+  billItemQty: {
+    fontSize: 13,
+    color: '#6B7280',
+  },
+
+  billItemTotal: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+
+  billTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+
+  billTotalLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+
+  billTotalValue: {
+    fontSize: 14,
+    color: '#111827',
+    fontWeight: '600',
+  },
+
+  billGrandTotal: {
+    marginTop: 8,
+    paddingTop: 12,
+    borderTopWidth: 2,
+    borderTopColor: PRIMARY,
+  },
+
+  billGrandTotalLabel: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+  },
+
+  billGrandTotalValue: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: PRIMARY,
+  },
+
+  billFooter: {
+    marginTop: 24,
+    alignItems: 'center',
+  },
+
+  billThankYou: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 4,
+  },
+
+  billFooterText: {
+    fontSize: 13,
+    color: '#6B7280',
+  },
+
+  billPreviewActions: {
+    padding: 16,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+  },
+
+  billPrintButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: PRIMARY,
+    paddingVertical: 14,
+    borderRadius: 10,
+    gap: 8,
+    elevation: 2,
+    shadowColor: PRIMARY,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+
+  billPrintButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '800',
   },
 });

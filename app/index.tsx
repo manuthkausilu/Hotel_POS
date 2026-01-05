@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, Alert, ScrollView, ActivityIndicator } from 'react-native';
+import { Pressable, StyleSheet, Text, View, Alert, ScrollView, ActivityIndicator, SafeAreaView, StatusBar } from 'react-native';
 import Drawer from '../components/Navigation';
 import { useAuth } from '../context/AuthContext';
 import OrdersScreen from './(tabs)/orders';
@@ -173,36 +173,45 @@ export default function HomeScreen() {
 	};
 
 	return (
-		<NotificationProvider>
-			<TopRightToast />
-			<View style={styles.container}>
-				<Drawer isOpen={drawerOpen} onClose={() => setDrawerOpen(false)} />
-				
-				<View style={styles.topBar}>
-					<Pressable style={styles.menuButton} onPress={() => setDrawerOpen(true)}>
-						<Ionicons name="menu" size={38} color="#FF6B6B" />
-					</Pressable>
-					<Text style={styles.topBarTitle}>Trackerstay</Text>
-					{/* notification bell */}
-					<View style={styles.rightControls}>
-						{/* toggles in-place modal */}
-						<NotificationBell onOpen={() => setModalVisible(true)} />
-					</View>
-				</View>
+		<>
+			<StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
+			<SafeAreaView style={styles.safeArea}>
+				<NotificationProvider>
+					<TopRightToast />
+					<View style={styles.container}>
+						<Drawer isOpen={drawerOpen} onClose={() => setDrawerOpen(false)} />
+						
+						<View style={styles.topBar}>
+							<Pressable style={styles.menuButton} onPress={() => setDrawerOpen(true)}>
+								<Ionicons name="menu" size={38} color="#FF6B6B" />
+							</Pressable>
+							<Text style={styles.topBarTitle}>Trackerstay</Text>
+							{/* notification bell */}
+							<View style={styles.rightControls}>
+								{/* toggles in-place modal */}
+								<NotificationBell onOpen={() => setModalVisible(true)} />
+							</View>
+						</View>
 
 {/* OrdersScreen: displays menu items, cart UI and order submission modal.................... */}
-				<View style={{ flex: 1 }}>
-					<OrdersScreen />
-				</View>
+						<View style={{ flex: 1 }}>
+							<OrdersScreen />
+						</View>
 {/* .......................................................................................... */}
-				{/* Notification Modal overlay */}
-				<NotificationModal visible={modalVisible} onClose={() => setModalVisible(false)} />
-			</View>
-		</NotificationProvider>
+						{/* Notification Modal overlay */}
+						<NotificationModal visible={modalVisible} onClose={() => setModalVisible(false)} />
+					</View>
+				</NotificationProvider>
+			</SafeAreaView>
+		</>
 	);
 }
 
 const styles = StyleSheet.create({
+	safeArea: {
+		flex: 1,
+		backgroundColor: '#FFFFFF',
+	},
 	container: {
 		flex: 1,
 		backgroundColor: '#FFFFFF',
@@ -214,7 +223,6 @@ const styles = StyleSheet.create({
 		justifyContent: 'space-between',
 		paddingHorizontal: 16,
 		paddingVertical: 16,
-		paddingTop: 48,
 		backgroundColor: 'white',
 		shadowColor: '#000',
 		shadowOffset: { width: 0, height: 2 },

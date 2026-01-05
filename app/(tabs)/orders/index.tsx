@@ -9,8 +9,8 @@ import { getTables, type Table } from '../../../services/tableService';
 import type { MenuItem, MenuResponse } from '../../../types/menu';
 import ComboSelectionModal from '../../../components/orders/ComboSelectionModal';
 import CartPanel from '../../../components/orders/CartPanel';
-import InvoiceWebView from '../../../components/InvoiceWebView';
-import { getOrderInvoice } from '../../../services/invoiceService';
+import { fetchAndMapOrderToBillData } from '../../../services/bill/billMapper';
+import { printThermalBill } from '../../../services/bill/printerService';
 
 const { width, height } = Dimensions.get('window');
 const imageBase = 'https://app.trackerstay.com/storage/';
@@ -99,11 +99,6 @@ export default function OrdersScreen() {
   const [roomsLoading, setRoomsLoading] = useState(false);
   const [roomsError, setRoomsError] = useState<string | null>(null);
   const [roomDropdownOpen, setRoomDropdownOpen] = useState(false);
-
-  // New: invoice modal state
-  const [invoiceModalVisible, setInvoiceModalVisible] = useState(false);
-  const [invoiceUrl, setInvoiceUrl] = useState<string>('');
-  const [invoiceLoading, setInvoiceLoading] = useState(false);
 
   // Calculate cartTotal so it is available in the component
   const cartTotal = cart.reduce((sum, c) => {
@@ -584,23 +579,22 @@ export default function OrdersScreen() {
 				setGivenAmount('');
 				setChangeAmount(null);
 				
-				// Fetch and show invoice
-				setInvoiceLoading(true);
+				// Print bill directly
 				try {
-					const { invoiceUrl: url } = await getOrderInvoice(finalizeOrderId);
-					setInvoiceUrl(url);
-					setInvoiceModalVisible(true);
-					
-					// Refresh running orders
-					await fetchRunningOrders(true);
-				} catch (invoiceErr: any) {
-					Alert.alert('Invoice Error', invoiceErr?.message ?? 'Failed to load invoice');
-					// Still refresh orders even if invoice fails
-					await fetchRunningOrders(true);
-				} finally {
-					setInvoiceLoading(false);
-					setFinalizeOrderId(null);
-				}
+          const billData = await fetchAndMapOrderToBillData(finalizeOrderId);
+          await printThermalBill(billData);
+          console.log('Bill printed successfully for order:', finalizeOrderId);
+        } catch (printErr: any) {
+          // Only show error if not cancelled by user
+          const errorMessage = printErr?.message || '';
+          if (!errorMessage.includes('cancelled') && !errorMessage.includes('Print cancelled')) {
+            Alert.alert('Print Error', errorMessage || 'Failed to print bill');
+          }
+        }
+        
+        // Refresh running orders
+        await fetchRunningOrders(true);
+        setFinalizeOrderId(null);
 			} else {
 				Alert.alert('Error', res?.message ?? 'Finalize failed');
 			}
@@ -1573,35 +1567,6 @@ export default function OrdersScreen() {
 					</TouchableWithoutFeedback>
 				</KeyboardAvoidingView>
 			</Modal>
-
-      {/* Invoice Modal */}
-      <Modal visible={invoiceModalVisible} animationType="slide" transparent={false}>
-        <SafeAreaView style={styles.invoiceModalSafeArea}>
-          <View style={styles.invoiceModalContainer}>
-            <View style={styles.invoiceModalHeader}>
-              <Text style={styles.invoiceModalTitle}>Order Invoice</Text>
-            </View>
-            
-            {invoiceLoading ? (
-              <View style={styles.invoiceLoadingContainer}>
-                <Text style={styles.invoiceLoadingText}>Loading invoice...</Text>
-              </View>
-            ) : invoiceUrl ? (
-              <InvoiceWebView
-                invoiceUrl={invoiceUrl}
-                onClose={() => {
-                  setInvoiceModalVisible(false);
-                  setInvoiceUrl('');
-                }}
-              />
-            ) : (
-              <View style={styles.invoiceLoadingContainer}>
-                <Text style={styles.invoiceLoadingText}>No invoice available</Text>
-              </View>
-            )}
-          </View>
-        </SafeAreaView>
-      </Modal>
     </View>
   );
 }
@@ -2168,46 +2133,4 @@ const styles = StyleSheet.create({
   },
   paymentMethodTextActive: { color: '#FF6B6B', fontWeight: '800' },
   paymentMethodText: { color: '#111827', fontWeight: '700' },
-
-  // Invoice modal styles
-  invoiceModalSafeArea: {
-    flex: 1,
-    backgroundColor: '#FF6B6B',
-  },
-  invoiceModalContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  invoiceModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    backgroundColor: '#FF6B6B',
-    minHeight: 56,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  invoiceModalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    textAlign: 'center',
-  },
-  invoiceLoadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  invoiceLoadingText: {
-    color: '#FF6B6B',
-    fontWeight: '700',
-    fontSize: 16,
-    textAlign: 'center',
-  },
 });
