@@ -1,6 +1,6 @@
 // OrdersScreen: displays menu items and cart UI only.
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, Dimensions, Alert, Modal, TextInput, ScrollView, TouchableWithoutFeedback, Keyboard, Switch, KeyboardAvoidingView, Platform, SafeAreaView } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, Dimensions, Alert, Modal, TextInput, ScrollView, TouchableWithoutFeedback, Keyboard, Switch, KeyboardAvoidingView, Platform } from 'react-native';
 import { fetchMenuData, fetchMenuItemByIdEndpoint } from '../../../services/menuService';
 import { orderService } from '../../../services/orderService';
 import { getStewards, Steward, formatStewardName } from '../../../services/staffService';
@@ -11,6 +11,7 @@ import ComboSelectionModal from '../../../components/orders/ComboSelectionModal'
 import CartPanel from '../../../components/orders/CartPanel';
 import { fetchAndMapOrderToBillData } from '../../../services/bill/billMapper';
 import { printThermalBill } from '../../../services/bill/printerService';
+import { getHotelSettings, type HotelSettings } from '../../../services/hotelSettingService';
 
 const { width, height } = Dimensions.get('window');
 const imageBase = 'https://app.trackerstay.com/storage/';
@@ -44,6 +45,12 @@ export default function OrdersScreen() {
     stewardId: '',
   });
   const [enableServiceCharge, setEnableServiceCharge] = useState(true);
+
+  // hotel settings state
+  const [hotelSettings, setHotelSettings] = useState<HotelSettings | null>(null);
+  const [hotelSettingsLoading, setHotelSettingsLoading] = useState(false);
+  const [hotelSettingsError, setHotelSettingsError] = useState<string | null>(null);
+  const [serviceChargePercent, setServiceChargePercent] = useState<number>(10);
   const [orderPlacedModalVisible, setOrderPlacedModalVisible] = useState(false);
   const [placedOrderSummary, setPlacedOrderSummary] = useState<any | null>(null);
 
@@ -106,6 +113,37 @@ export default function OrdersScreen() {
     const combosPrice = (c.combos || []).reduce((s, sc) => s + (Number(sc.menu?.price) || 0), 0);
     return sum + (base + combosPrice) * c.quantity;
   }, 0);
+
+  // currency label and displayed service charge depend on cartTotal and settings
+  const currencyLabel = (hotelSettings?.currency ?? 'Rs') + ' ';
+  const displayedServiceCharge = enableServiceCharge ? cartTotal * (serviceChargePercent / 100) : 0;
+
+  // fetch hotel settings on mount and derive percent/flag
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      setHotelSettingsLoading(true);
+      setHotelSettingsError(null);
+      try {
+        const s = await getHotelSettings();
+        if (!mounted) return;
+        setHotelSettings(s ?? null);
+        const raw = s?.service_charge ?? '';
+        const parsed = parseFloat(String(raw));
+        const percent = !isNaN(parsed) ? (parsed > 0 && parsed <= 1 ? parsed * 100 : parsed) : 10;
+        setServiceChargePercent(percent);
+        setEnableServiceCharge(Boolean(Number(s?.service_charge_enabled ?? 0)));
+      } catch (err: any) {
+        if (!mounted) return;
+        setHotelSettingsError(err?.message ?? 'Failed to load hotel settings');
+      } finally {
+        if (!mounted) return;
+        setHotelSettingsLoading(false);
+      }
+    };
+    load();
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     const loadMenuData = async () => {
@@ -398,7 +436,7 @@ export default function OrdersScreen() {
         return sum + (base + comboPrice) * c.quantity;
       }, 0);
 
-      const serviceCharge = enableServiceCharge ? subtotal * 0.1 : 0;
+      const serviceCharge = enableServiceCharge ? subtotal * (serviceChargePercent / 100) : 0;
       const totalAmount = subtotal + serviceCharge;
 
       const selectedCustomer = orderDetails.customer
@@ -702,7 +740,7 @@ export default function OrdersScreen() {
         table_id: isTakeAway ? '' : (orderDetails.tableId ?? ''),
         steward_id: orderDetails.stewardId ?? '',
         restaurant_id: 2, // keep same default used elsewhere
-        service_charge: enableServiceCharge ? Number((cartTotal * 0.1).toFixed(2)) : 0,
+        service_charge: enableServiceCharge ? Number((cartTotal * (serviceChargePercent / 100)).toFixed(2)) : 0,
         cart: cart.map(c => ({
           recipe_id: c.item.id,
           name: c.item.name,
@@ -759,163 +797,158 @@ export default function OrdersScreen() {
   if (error) return <Text>{error}</Text>;
 
   const renderMenuItems = () => {
-    const cartTotal = cart.reduce((sum, c) => {
-      const base = Number(c.item.price) || 0;
-      const combosPrice = (c.combos || []).reduce((s, sc) => s + (Number(sc.menu?.price) || 0), 0);
-      return sum + (base + combosPrice) * c.quantity;
-    }, 0);
-
-    return (
-      <>
-        {/* Replace the inline search/header block with a modern search bar */}
-        <View style={styles.searchBar}>
-          <View style={styles.searchInputWrapper}>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search items..."
-              placeholderTextColor="#9CA3AF"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              returnKeyType="search"
-              underlineColorAndroid="transparent"
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
-                <Text style={styles.clearText}>Clear</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <View style={styles.countBadge}>
-            <TouchableOpacity
-              style={styles.ongoingToggle}
-              onPress={() => { setOngoingOpen(true); fetchRunningOrders(true); }}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.ongoingToggleText}>Running</Text>
-              <View style={styles.ongoingBadge}>
-                <Text style={styles.ongoingBadgeText}>{runningOrders.length}</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.categoryArea}>
-        {categories.length > 0 && (() => {
-           // build a categories data array that always includes "All" as first item
-           const flatCats = [{ id: '__all__', label: 'All' }, ...categories.map((c) => ({ id: c.id ?? String(c), label: c.label ?? c.name ?? String(c) }))];
- 
-           return (
-             <FlatList
-               horizontal
-               data={flatCats}
-               keyExtractor={(item) => String(item.id)}
-               showsHorizontalScrollIndicator={false}
-               contentContainerStyle={styles.categoryListContent}
-               style={styles.categoryList}
-               extraData={selectedCategoryId}
-               removeClippedSubviews={false} // avoid Android clipping issues
-               initialNumToRender={Math.min(10, flatCats.length)}
-               maxToRenderPerBatch={10}
-               windowSize={11}               // larger window to avoid virtualization hiding items while scrolling
-               nestedScrollEnabled={true}    // helps nested scroll behaviors on Android
-               scrollEnabled={true}
-               keyboardShouldPersistTaps="handled"
-               renderItem={({ item }) => {
-                 const isAll = item.id === '__all__';
-                 const catId = isAll ? null : item.id;
-                 const isActive = (isAll && selectedCategoryId === null) || (!isAll && String(selectedCategoryId) === String(item.id));
-                 return (
-                   <TouchableOpacity
-                     activeOpacity={0.85}
-                     onPress={() => setSelectedCategoryId(catId)}
-                     style={[styles.categoryPill, isActive && styles.categoryPillActive]}
-                   >
-                     <Text
-                       style={[styles.categoryLabel, isActive && styles.categoryLabelActive]}
-                       numberOfLines={1}
-                       allowFontScaling={false}
-                     >
-                       {item.label}
-                     </Text>
-                   </TouchableOpacity>
-                 );
-               }}
+     // use cartTotal / displayedServiceCharge / currencyLabel from component scope
+     return (
+       <>
+         {/* Replace the inline search/header block with a modern search bar */}
+         <View style={styles.searchBar}>
+           <View style={styles.searchInputWrapper}>
+             <TextInput
+               style={styles.searchInput}
+               placeholder="Search items..."
+               placeholderTextColor="#9CA3AF"
+               value={searchQuery}
+               onChangeText={setSearchQuery}
+               returnKeyType="search"
+               underlineColorAndroid="transparent"
              />
-           );
-        })()}
-        </View>
+             {searchQuery.length > 0 && (
+               <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
+                 <Text style={styles.clearText}>Clear</Text>
+               </TouchableOpacity>
+             )}
+           </View>
 
-        <FlatList
-          data={filteredMenuItems}
-          keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={styles.menuList}
-          showsVerticalScrollIndicator={false}
-          renderItem={({ item }) => {
-            const imgUri = item.image ? imageBase + item.image.replace(/^\/+/, '') : null;
-            const aggregatedQty = cart.filter(c => String(c.item.id) === String(item.id)).reduce((s, c) => s + c.quantity, 0);
-            const cartEntryPreferredId = findPreferredEntryId(item.id);
-            const isAvailable = item.is_available !== 0;
+           <View style={styles.countBadge}>
+             <TouchableOpacity
+               style={styles.ongoingToggle}
+               onPress={() => { setOngoingOpen(true); fetchRunningOrders(true); }}
+               activeOpacity={0.85}
+             >
+               <Text style={styles.ongoingToggleText}>Running</Text>
+               <View style={styles.ongoingBadge}>
+                 <Text style={styles.ongoingBadgeText}>{runningOrders.length}</Text>
+               </View>
+             </TouchableOpacity>
+           </View>
+         </View>
 
+         <View style={styles.categoryArea}>
+         {categories.length > 0 && (() => {
+            // build a categories data array that always includes "All" as first item
+            const flatCats = [{ id: '__all__', label: 'All' }, ...categories.map((c) => ({ id: c.id ?? String(c), label: c.label ?? c.name ?? String(c) }))];
+  
             return (
-              <View style={styles.menuCard}>
-                <View style={styles.menuImageWrapper}>
-                  <View style={[styles.availabilityDot, !isAvailable && styles.availabilityDotOff]} />
-                  {imgUri && !imageErrors[item.id] ? (
-                    <Image
-                      source={{ uri: imgUri }}
-                      style={styles.menuImage}
-                      onError={() => setImageErrors(prev => ({ ...prev, [item.id]: true }))}
-                    />
-                  ) : (
-                    <View style={[styles.menuImage, styles.placeholder]}>
-                      <Text style={styles.placeholderText}>No image</Text>
-                    </View>
-                  )}
-                </View>
-                <View style={styles.menuInfo}>
-                  <Text style={styles.menuTitle}>{item.name}</Text>
-                  {item.special_note ? (
-                    <Text style={styles.menuMeta}>{item.special_note}</Text>
-                  ) : item.item_code ? (
-                    <Text style={styles.menuMeta}>Item code • {item.item_code}</Text>
-                  ) : null}
-                  <View style={styles.menuFooter}>
-                    <Text style={styles.menuPrice}>Rs {Number(item.price).toFixed(2)}</Text>
-                    {aggregatedQty > 0 ? (
-                      <View style={styles.qtyPill}>
-                        <TouchableOpacity onPress={() => cartEntryPreferredId && updateQuantity(cartEntryPreferredId, -1)}>
-                          <Text style={styles.qtyPillButton}>-</Text>
-                        </TouchableOpacity>
-                        <Text style={styles.qtyPillValue}>{aggregatedQty}</Text>
-                        <TouchableOpacity onPress={() => cartEntryPreferredId && updateQuantity(cartEntryPreferredId, 1)}>
-                          <Text style={styles.qtyPillButton}>+</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ) : (
-                      <TouchableOpacity style={styles.addBadge} onPress={() => addToCart(item)}>
-                        <Text style={styles.addBadgeText}>+ ADD</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
-              </View>
+              <FlatList
+                horizontal
+                data={flatCats}
+                keyExtractor={(item) => String(item.id)}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.categoryListContent}
+                style={styles.categoryList}
+                extraData={selectedCategoryId}
+                removeClippedSubviews={false} // avoid Android clipping issues
+                initialNumToRender={Math.min(10, flatCats.length)}
+                maxToRenderPerBatch={10}
+                windowSize={11}               // larger window to avoid virtualization hiding items while scrolling
+                nestedScrollEnabled={true}    // helps nested scroll behaviors on Android
+                scrollEnabled={true}
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item }) => {
+                  const isAll = item.id === '__all__';
+                  const catId = isAll ? null : item.id;
+                  const isActive = (isAll && selectedCategoryId === null) || (!isAll && String(selectedCategoryId) === String(item.id));
+                  return (
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      onPress={() => setSelectedCategoryId(catId)}
+                      style={[styles.categoryPill, isActive && styles.categoryPillActive]}
+                    >
+                      <Text
+                        style={[styles.categoryLabel, isActive && styles.categoryLabelActive]}
+                        numberOfLines={1}
+                        allowFontScaling={false}
+                      >
+                        {item.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                }}
+              />
             );
-          }}
-          ListFooterComponent={<View style={{ height: 80 }} />}
-        />
-        {cart.length > 0 && !showCart && (
-          <TouchableOpacity style={styles.cartSummaryBar} onPress={() => setShowCart(true)} activeOpacity={0.9}>
-            <View>
-              <Text style={styles.cartSummaryItems}>{cart.length} {cart.length === 1 ? 'Item' : 'Items'}</Text>
-              <Text style={styles.cartSummaryTotal}>Rs {cartTotal.toFixed(2)}</Text>
-            </View>
-            <Text style={styles.cartSummaryCta}>View Cart</Text>
-          </TouchableOpacity>
-        )}
-      </>
-    );
-  };
+         })()}
+         </View>
+
+         <FlatList
+           data={filteredMenuItems}
+           keyExtractor={(item) => item.id.toString()}
+           contentContainerStyle={styles.menuList}
+           showsVerticalScrollIndicator={false}
+           renderItem={({ item }) => {
+             const imgUri = item.image ? imageBase + item.image.replace(/^\/+/, '') : null;
+             const aggregatedQty = cart.filter(c => String(c.item.id) === String(item.id)).reduce((s, c) => s + c.quantity, 0);
+             const cartEntryPreferredId = findPreferredEntryId(item.id);
+             const isAvailable = item.is_available !== 0;
+
+             return (
+               <View style={styles.menuCard}>
+                 <View style={styles.menuImageWrapper}>
+                   <View style={[styles.availabilityDot, !isAvailable && styles.availabilityDotOff]} />
+                   {imgUri && !imageErrors[item.id] ? (
+                     <Image
+                       source={{ uri: imgUri }}
+                       style={styles.menuImage}
+                       onError={() => setImageErrors(prev => ({ ...prev, [item.id]: true }))}
+                     />
+                   ) : (
+                     <View style={[styles.menuImage, styles.placeholder]}>
+                       <Text style={styles.placeholderText}>No image</Text>
+                     </View>
+                   )}
+                 </View>
+                 <View style={styles.menuInfo}>
+                   <Text style={styles.menuTitle}>{item.name}</Text>
+                   {item.special_note ? (
+                     <Text style={styles.menuMeta}>{item.special_note}</Text>
+                   ) : item.item_code ? (
+                     <Text style={styles.menuMeta}>Item code • {item.item_code}</Text>
+                   ) : null}
+                   <View style={styles.menuFooter}>
+                     <Text style={styles.menuPrice}>{currencyLabel}{Number(item.price).toFixed(2)}</Text>
+                     {aggregatedQty > 0 ? (
+                       <View style={styles.qtyPill}>
+                         <TouchableOpacity onPress={() => cartEntryPreferredId && updateQuantity(cartEntryPreferredId, -1)}>
+                           <Text style={styles.qtyPillButton}>-</Text>
+                         </TouchableOpacity>
+                         <Text style={styles.qtyPillValue}>{aggregatedQty}</Text>
+                         <TouchableOpacity onPress={() => cartEntryPreferredId && updateQuantity(cartEntryPreferredId, 1)}>
+                           <Text style={styles.qtyPillButton}>+</Text>
+                         </TouchableOpacity>
+                       </View>
+                     ) : (
+                       <TouchableOpacity style={styles.addBadge} onPress={() => addToCart(item)}>
+                         <Text style={styles.addBadgeText}>+ ADD</Text>
+                       </TouchableOpacity>
+                     )}
+                   </View>
+                 </View>
+               </View>
+             );
+           }}
+           ListFooterComponent={<View style={{ height: 80 }} />}
+         />
+         {cart.length > 0 && !showCart && (
+           <TouchableOpacity style={styles.cartSummaryBar} onPress={() => setShowCart(true)} activeOpacity={0.9}>
+             <View>
+               <Text style={styles.cartSummaryItems}>{cart.length} {cart.length === 1 ? 'Item' : 'Items'}</Text>
+               <Text style={styles.cartSummaryTotal}>{currencyLabel}{cartTotal.toFixed(2)}</Text>
+             </View>
+             <Text style={styles.cartSummaryCta}>View Cart</Text>
+           </TouchableOpacity>
+         )}
+       </>
+     );
+   };
 
   const toggleCart = () => setShowCart(prev => !prev);
 
@@ -1016,7 +1049,7 @@ export default function OrdersScreen() {
                 <View key={String(o.id)} style={styles.ongoingOrderCard}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <Text style={{ fontWeight: '800' }}>#{o.id}</Text>
-                    <Text style={{ color: '#FF6B6B', fontWeight: '800' }}>Rs {Number(o.total).toFixed(2)}</Text>
+                    <Text style={{ color: '#FF6B6B', fontWeight: '800' }}>{currencyLabel}{Number(o.total).toFixed(2)}</Text>
                   </View>
 
                   {/* created_at */}
@@ -1309,7 +1342,7 @@ export default function OrdersScreen() {
                 </View>
 
                 <View style={styles.serviceChargeRow}>
-                  <Text>Enable Service Charge (10%)</Text>
+                  <Text>Enable Service Charge ({serviceChargePercent}%)</Text>
                   <Switch value={enableServiceCharge} onValueChange={setEnableServiceCharge} />
                 </View>
 
@@ -1318,18 +1351,18 @@ export default function OrdersScreen() {
                   <Text style={styles.priceSummaryTitle}>Order Summary</Text>
                   <View style={styles.priceSummaryRow}>
                     <Text style={styles.priceSummaryLabel}>Subtotal:</Text>
-                    <Text style={styles.priceSummaryValue}>Rs {cartTotal.toFixed(2)}</Text>
+                    <Text style={styles.priceSummaryValue}>{currencyLabel}{cartTotal.toFixed(2)}</Text>
                   </View>
                   <View style={styles.priceSummaryRow}>
-                    <Text style={styles.priceSummaryLabel}>Service Charge (10%):</Text>
+                    <Text style={styles.priceSummaryLabel}>Service Charge ({serviceChargePercent}%):</Text>
                     <Text style={styles.priceSummaryValue}>
-                      Rs {enableServiceCharge ? (cartTotal * 0.1).toFixed(2) : '0.00'}
+                      {currencyLabel}{enableServiceCharge ? displayedServiceCharge.toFixed(2) : '0.00'}
                     </Text>
                   </View>
                   <View style={[styles.priceSummaryRow, styles.priceSummaryTotal]}>
                     <Text style={styles.priceTotalLabel}>Total:</Text>
                     <Text style={styles.priceTotalValue}>
-                      Rs {(cartTotal + (enableServiceCharge ? cartTotal * 0.1 : 0)).toFixed(2)}
+                      {currencyLabel}{(cartTotal + displayedServiceCharge).toFixed(2)}
                     </Text>
                   </View>
                 </View>
@@ -1367,12 +1400,12 @@ export default function OrdersScreen() {
                   <Text style={styles.summarySubtitle}>Items:</Text>
                   {placedOrderSummary.items.map((item: any, idx: number) => (
                     <Text key={idx} style={styles.summaryText}>
-                      {item.qty}x {item.name} - Rs {(item.qty * item.price).toFixed(2)}
+                      {item.qty}x {item.name} - {currencyLabel}{(item.qty * item.price).toFixed(2)}
                     </Text>
                   ))}
-                  <Text style={styles.summaryText}>Subtotal: Rs {placedOrderSummary.subtotal.toFixed(2)}</Text>
-                  <Text style={styles.summaryText}>Service Charge: Rs {placedOrderSummary.serviceCharge.toFixed(2)}</Text>
-                  <Text style={styles.totalText}>Total: Rs {placedOrderSummary.total.toFixed(2)}</Text>
+                  <Text style={styles.summaryText}>Subtotal: {currencyLabel}{placedOrderSummary.subtotal.toFixed(2)}</Text>
+                  <Text style={styles.summaryText}>Service Charge: {currencyLabel}{placedOrderSummary.serviceCharge.toFixed(2)}</Text>
+                  <Text style={styles.totalText}>Total: {currencyLabel}{placedOrderSummary.total.toFixed(2)}</Text>
                 </ScrollView>
               )}
               <TouchableOpacity
@@ -1520,7 +1553,7 @@ export default function OrdersScreen() {
 										{changeAmount !== null && (
 											<View style={styles.finalizeChangeRow}>
 												<Text style={styles.finalizeChangeLabel}>Change:</Text>
-												<Text style={styles.finalizeChangeValue}>Rs {changeAmount.toFixed(2)}</Text>
+												<Text style={styles.finalizeChangeValue}>{currencyLabel}{changeAmount.toFixed(2)}</Text>
 											</View>
 										)}
 
@@ -1699,7 +1732,7 @@ const styles = StyleSheet.create({
   menuCard: {
     flexDirection: 'row',
     padding: 16,
-    borderRadius: 16,
+    borderRadius:  16,
     backgroundColor: '#FFFFFF',
     marginBottom: 14,
     borderWidth: 1,
@@ -1711,7 +1744,7 @@ const styles = StyleSheet.create({
     shadowRadius:  12,
     elevation: 2,
   },
-  menuImageWrapper: { marginRight: 14 },
+  menuImageWrapper: { marginRight:  14 },
   availabilityDot: {
     width: 12,
     height: 12,
