@@ -1,5 +1,5 @@
 // OrdersScreen: displays menu items and cart UI only.
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, Dimensions, Alert, Modal, TextInput, ScrollView, TouchableWithoutFeedback, Keyboard, Switch, KeyboardAvoidingView, Platform } from 'react-native';
 import { fetchMenuData, fetchMenuItemByIdEndpoint } from '../../../services/menuService';
 import { orderService } from '../../../services/orderService';
@@ -45,6 +45,20 @@ export default function OrdersScreen() {
     stewardId: '',
   });
   const [enableServiceCharge, setEnableServiceCharge] = useState(true);
+
+  // New: immediate finalization state
+  const [immediateFinalize, setImmediateFinalize] = useState(false);
+  const [submitPaymentMethod, setSubmitPaymentMethod] = useState<string>('Cash');
+  const [submitPaidAmount, setSubmitPaidAmount] = useState<string>('');
+  const [submitGivenAmount, setSubmitGivenAmount] = useState<string>('');
+  const [submitChangeAmount, setSubmitChangeAmount] = useState<number | null>(null);
+  const [submitPaymentDropdownOpen, setSubmitPaymentDropdownOpen] = useState(false);
+
+  // New: ref for order modal scroll
+  const orderModalScrollRef = useRef<ScrollView>(null);
+
+  // New: processing states for submit and update
+  const [submitProcessing, setSubmitProcessing] = useState(false);
 
   // hotel settings state
   const [hotelSettings, setHotelSettings] = useState<HotelSettings | null>(null);
@@ -400,8 +414,46 @@ export default function OrdersScreen() {
 
   const isTakeAway = (orderDetails.orderType || '').toLowerCase().includes('take');
 
+  // Compute change for submit form payment fields
+  useEffect(() => {
+    if (!immediateFinalize) {
+      setSubmitChangeAmount(null);
+      return;
+    }
+    const paid = parseFloat(submitPaidAmount || '0') || 0;
+    const given = parseFloat(submitGivenAmount || '0') || 0;
+    if (submitPaymentMethod === 'Free') {
+      setSubmitChangeAmount(0);
+      return;
+    }
+    const diff = given - paid;
+    if (isNaN(diff) || diff < 0) {
+      setSubmitChangeAmount(null);
+    } else {
+      setSubmitChangeAmount(Number(diff.toFixed(2)));
+    }
+  }, [submitPaidAmount, submitGivenAmount, submitPaymentMethod, immediateFinalize]);
+
+  // Auto-fill paid amount when finalize toggle changes or cart changes
+  useEffect(() => {
+    if (immediateFinalize) {
+      const total = cartTotal + displayedServiceCharge;
+      setSubmitPaidAmount(String(Number(total.toFixed(2))));
+      
+      // Scroll to finalize section when enabled
+      setTimeout(() => {
+        orderModalScrollRef.current?.scrollToEnd({ animated: true });
+      }, 300);
+    }
+  }, [immediateFinalize, cartTotal, displayedServiceCharge]);
+
   const submitOrder = async () => {
+    // Prevent double submission
+    if (submitProcessing) return;
+    
     try {
+      setSubmitProcessing(true);
+      
       if (!orderDetails.orderType || orderDetails.orderType.trim().length === 0) {
         Alert.alert('Error', 'Please select Order Type');
         return;
@@ -411,7 +463,17 @@ export default function OrdersScreen() {
         return;
       }
 
-      // Don't keep / send table for Take away
+      // Validate finalize fields if immediate finalization is enabled
+      if (immediateFinalize) {
+        const paid = parseFloat(submitPaidAmount || '0');
+        if (submitPaymentMethod !== 'Free') {
+          if (isNaN(paid) || paid <= 0) {
+            Alert.alert('Error', 'Please enter a valid paid amount');
+            return;
+          }
+        }
+      }
+
       const effectiveTableId = isTakeAway ? undefined : (orderDetails.tableId || undefined);
 
       const orderId = orderService.createOrder(effectiveTableId);
@@ -460,6 +522,60 @@ export default function OrdersScreen() {
         serviceCharge,
       });
 
+      // Store finalization status before clearing state
+      const wasFinalized = immediateFinalize;
+      const finalizePaymentMethod = submitPaymentMethod;
+
+      // If immediate finalization is enabled, finalize the order
+      if (immediateFinalize && response.data.order_id) {
+        try {
+          const paid = parseFloat(submitPaidAmount || '0');
+          const finalizePayload = {
+            order_id: response.data.order_id,
+            payment_method: submitPaymentMethod || 'Cash',
+            paid_amount: submitPaymentMethod === 'Free' ? Number(totalAmount.toFixed(2)) : Number(paid.toFixed(2)),
+            given_amount: submitPaymentMethod === 'Free' ? 0 : (submitGivenAmount ? Number(parseFloat(submitGivenAmount).toFixed(2)) : undefined),
+            change_amount: submitPaymentMethod === 'Free' ? 0 : (submitChangeAmount ?? undefined),
+            order_date: formatForApiDate(),
+          };
+          
+          const finalizeRes = await orderService.finalizeOrder(finalizePayload);
+          
+          if (finalizeRes && finalizeRes.success) {
+            // Print bill after finalization
+            try {
+              const billData = await fetchAndMapOrderToBillData(response.data.order_id);
+              await printThermalBill(billData);
+              console.log('Bill printed successfully for order:', response.data.order_id);
+            } catch (printErr: any) {
+              const errorMessage = printErr?.message || '';
+              if (!errorMessage.includes('cancelled') && !errorMessage.includes('Print cancelled')) {
+                Alert.alert('Print Error', errorMessage || 'Failed to print bill');
+              }
+            }
+            
+            // Refresh running orders after successful finalization
+            await fetchRunningOrders(true);
+          }
+        } catch (finalizeErr: any) {
+          Alert.alert('Finalize Error', finalizeErr?.response?.data?.message ?? finalizeErr?.message ?? 'Order created but finalization failed');
+        }
+      }
+
+      // Reset ALL state before showing summary
+      setCart([]);
+      setShowCart(false);
+      setShowOrderModal(false);
+      setOrderDetails({ tableId: '', orderType: 'Dine In', customer: '', room: '', stewardId: '' });
+      setEnableServiceCharge(true);
+      setImmediateFinalize(false);
+      setSubmitPaymentMethod('Cash');
+      setSubmitPaidAmount('');
+      setSubmitGivenAmount('');
+      setSubmitChangeAmount(null);
+      setSubmitPaymentDropdownOpen(false);
+
+      // Show order placed modal with summary
       setPlacedOrderSummary({
         orderId: response.data.order_id,
         orderNumber: response.data.order_number,
@@ -467,18 +583,16 @@ export default function OrdersScreen() {
         subtotal,
         serviceCharge,
         total: totalAmount,
+        finalized: wasFinalized,
+        paymentMethod: wasFinalized ? finalizePaymentMethod : undefined,
       });
-
-      setCart([]);
-      setShowCart(false);
-      setShowOrderModal(false);
       setOrderPlacedModalVisible(true);
 
-      setOrderDetails({ tableId: '', orderType: 'Dine In', customer: '', room: '', stewardId: '' });
-      setEnableServiceCharge(true);
     } catch (err: any) {
       const errorMessage = err?.response?.data?.message || 'Failed to place order';
       Alert.alert('Error', errorMessage);
+    } finally {
+      setSubmitProcessing(false);
     }
   };
 
@@ -729,8 +843,13 @@ export default function OrdersScreen() {
   const confirmUpdateOrder = async () => {
     if (!editingRunningOrderId) return Alert.alert('Error', 'No order selected for update');
     if (cart.length === 0) return Alert.alert('Error', 'Cart is empty');
+    
+    // Prevent double submission
+    if (submitProcessing) return;
 
     try {
+      setSubmitProcessing(true);
+      
       const payload: any = {
         // use numeric internal order id to avoid accidental "create" on the backend
         order_id: editingRunningOrderId,
@@ -773,6 +892,8 @@ export default function OrdersScreen() {
       }
     } catch (err: any) {
       Alert.alert('Error', err?.response?.data?.message ?? err?.message ?? 'Failed to update order');
+    } finally {
+      setSubmitProcessing(false);
     }
   };
 
@@ -1141,280 +1262,419 @@ export default function OrdersScreen() {
 
       {/* Order Modal */}
       <Modal visible={showOrderModal} animationType="slide" transparent>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.modalOverlay}>
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-              <View style={styles.modalContent}>
-                <Text style={styles.modalTitle}>{editingRunningOrderId ? 'Update Order' : 'Order Details'}</Text>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <ScrollView 
+                ref={orderModalScrollRef}
+                contentContainerStyle={styles.scrollContent}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled={true}
+              >
+                <View style={styles.modalContent}>
+                  <Text style={styles.modalTitle}>{editingRunningOrderId ? 'Update Order' : 'Order Details'}</Text>
 
-                <Text style={styles.label}>Order Type *</Text>
-                <View style={styles.segmentedControl}>
-                  {['Dine In', 'Take away'].map(type => (
-                    <TouchableOpacity
-                      key={type}
-                      onPress={() => {
-                        setOrderDetails(prev => ({
-                          ...prev,
-                          orderType: type,
-                          tableId: type.toLowerCase().includes('take') ? '' : prev.tableId,
-                        }));
-                        if (type.toLowerCase().includes('take')) setTableDropdownOpen(false);
-                      }}
-                      style={[styles.segmentButton, orderDetails.orderType === type && styles.segmentButtonActive]}
-                    >
-                      <Text style={[styles.segmentButtonText, orderDetails.orderType === type && styles.segmentButtonTextActive]}>
-                        {type}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                {/* Customer dropdown */}
-                <Text style={styles.label}>Customer</Text>
-                <View>
-                  <TouchableOpacity
-                    style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
-                    onPress={() => setCustomerDropdownOpen(p => !p)}
-                    activeOpacity={0.85}
-                  >
-                    <Text>
-                      {orderDetails.customer
-                        ? (formatCustomerName(customers.find(c => String(c.id) === String(orderDetails.customer))) || `#${orderDetails.customer}`)
-                        : 'Walk-in Customer'}
-                    </Text>
-                    <Text style={{ color: '#6B7280' }}>{customerDropdownOpen ? '▲' : '▼'}</Text>
-                  </TouchableOpacity>
-
-                  {customerDropdownOpen && (
-                    <View style={styles.paymentDropdown}>
+                  <Text style={styles.label}>Order Type *</Text>
+                  <View style={styles.segmentedControl}>
+                    {['Dine In', 'Take away'].map(type => (
                       <TouchableOpacity
-                        key="walkin"
-                        style={styles.paymentDropdownOption}
+                        key={type}
                         onPress={() => {
-                          setOrderDetails(prev => ({ ...prev, customer: '', room: '' }));
-                          setCustomerDropdownOpen(false);
-                          setRoomDropdownOpen(false);
+                          setOrderDetails(prev => ({
+                            ...prev,
+                            orderType: type,
+                            tableId: type.toLowerCase().includes('take') ? '' : prev.tableId,
+                          }));
+                          if (type.toLowerCase().includes('take')) setTableDropdownOpen(false);
                         }}
-                        activeOpacity={0.85}
+                        style={[styles.segmentButton, orderDetails.orderType === type && styles.segmentButtonActive]}
                       >
-                        <Text style={!orderDetails.customer ? styles.paymentMethodTextActive : styles.paymentMethodText}>
-                          Walk-in Customer
+                        <Text style={[styles.segmentButtonText, orderDetails.orderType === type && styles.segmentButtonTextActive]}>
+                          {type}
                         </Text>
                       </TouchableOpacity>
+                    ))}
+                  </View>
 
-                      {customersLoading && <Text style={{ padding: 8 }}>Loading...</Text>}
-                      {customersError && <Text style={{ padding: 8, color: 'red' }}>{customersError}</Text>}
+                  {/* Customer dropdown */}
+                  <Text style={styles.label}>Customer</Text>
+                  <View>
+                    <TouchableOpacity
+                      style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+                      onPress={() => setCustomerDropdownOpen(p => !p)}
+                      activeOpacity={0.85}
+                    >
+                      <Text>
+                        {orderDetails.customer
+                          ? (formatCustomerName(customers.find(c => String(c.id) === String(orderDetails.customer))) || `#${orderDetails.customer}`)
+                          : 'Walk-in Customer'}
+                      </Text>
+                      <Text style={{ color: '#6B7280' }}>{customerDropdownOpen ? '▲' : '▼'}</Text>
+                    </TouchableOpacity>
 
-                      {customers.map(c => (
+                    {customerDropdownOpen && (
+                      <View style={styles.paymentDropdown}>
                         <TouchableOpacity
-                          key={String(c.id)}
+                          key="walkin"
                           style={styles.paymentDropdownOption}
                           onPress={() => {
-                            // selecting customer triggers rooms fetch via useEffect
-                            setOrderDetails(prev => ({ ...prev, customer: String(c.id), room: '' }));
+                            setOrderDetails(prev => ({ ...prev, customer: '', room: '' }));
                             setCustomerDropdownOpen(false);
+                            setRoomDropdownOpen(false);
                           }}
                           activeOpacity={0.85}
                         >
-                          <Text style={orderDetails.customer === String(c.id) ? styles.paymentMethodTextActive : styles.paymentMethodText}>
-                            {formatCustomerName(c)}
+                          <Text style={!orderDetails.customer ? styles.paymentMethodTextActive : styles.paymentMethodText}>
+                            Walk-in Customer
                           </Text>
                         </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
 
-                {/* Room dropdown (fetched by getCustomerRooms using reservation_id = selected customer id) */}
-                <Text style={styles.label}>Room</Text>
-                <View>
-                  <TouchableOpacity
-                    style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
-                    onPress={() => {
-                      if (!orderDetails.customer) return; // must select customer first
-                      if (roomsLoading) return;
-                      setRoomDropdownOpen(p => !p);
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <Text>
-                      {!orderDetails.customer
-                        ? 'Select customer first'
-                        : roomsLoading
-                          ? 'Loading rooms...'
-                          : orderDetails.room
-                            ? (roomLabel(customerRooms.find(r => String(r.room?.id) === String(orderDetails.room))) || `#${orderDetails.room}`)
-                            : (customerRooms.length > 0 ? 'Select room' : 'No rooms found')}
-                    </Text>
-                    <Text style={{ color: '#6B7280' }}>
-                      {roomDropdownOpen ? '▲' : '▼'}
-                    </Text>
-                  </TouchableOpacity>
+                        {customersLoading && <Text style={{ padding: 8 }}>Loading...</Text>}
+                        {customersError && <Text style={{ padding: 8, color: 'red' }}>{customersError}</Text>}
 
-                  {!!roomsError && <Text style={{ paddingBottom: 8, color: 'red' }}>{roomsError}</Text>}
-
-                  {roomDropdownOpen && orderDetails.customer && !roomsLoading && (
-                    <View style={styles.paymentDropdown}>
-                      <TouchableOpacity
-                        key="room-none"
-                        style={styles.paymentDropdownOption}
-                        onPress={() => { setOrderDetails(prev => ({ ...prev, room: '' })); setRoomDropdownOpen(false); }}
-                        activeOpacity={0.85}
-                      >
-                        <Text style={!orderDetails.room ? styles.paymentMethodTextActive : styles.paymentMethodText}>
-                          None
-                        </Text>
-                      </TouchableOpacity>
-
-                      {customerRooms.map((ri, idx) => {
-                        const id = String(ri?.room?.id ?? idx);
-                        return (
+                        {customers.map(c => (
                           <TouchableOpacity
-                            key={id}
+                            key={String(c.id)}
                             style={styles.paymentDropdownOption}
-                            onPress={() => { setOrderDetails(prev => ({ ...prev, room: id })); setRoomDropdownOpen(false); }}
+                            onPress={() => {
+                              // selecting customer triggers rooms fetch via useEffect
+                              setOrderDetails(prev => ({ ...prev, customer: String(c.id), room: '' }));
+                              setCustomerDropdownOpen(false);
+                            }}
                             activeOpacity={0.85}
                           >
-                            <Text style={orderDetails.room === id ? styles.paymentMethodTextActive : styles.paymentMethodText}>
-                              {roomLabel(ri) || `#${id}`}
+                            <Text style={orderDetails.customer === String(c.id) ? styles.paymentMethodTextActive : styles.paymentMethodText}>
+                              {formatCustomerName(c)}
                             </Text>
                           </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  )}
+                        ))}
+                      </View>
+                    )}
+                  </View>
 
-                  {/* Manual fallback if rooms not returned */}
-                  {orderDetails.customer && !roomsLoading && customerRooms.length === 0 && (
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Manual room (optional)"
-                      value={orderDetails.room}
-                      onChangeText={(text) => setOrderDetails(prev => ({ ...prev, room: text }))}
-                      keyboardType="default"
-                    />
-                  )}
-                </View>
+                  {/* Room dropdown (fetched by getCustomerRooms using reservation_id = selected customer id) */}
+                  <Text style={styles.label}>Room</Text>
+                  <View>
+                    <TouchableOpacity
+                      style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+                      onPress={() => {
+                        if (!orderDetails.customer) return; // must select customer first
+                        if (roomsLoading) return;
+                        setRoomDropdownOpen(p => !p);
+                      }}
+                      activeOpacity={0.85}
+                    >
+                      <Text>
+                        {!orderDetails.customer
+                          ? 'Select customer first'
+                          : roomsLoading
+                            ? 'Loading rooms...'
+                            : orderDetails.room
+                              ? (roomLabel(customerRooms.find(r => String(r.room?.id) === String(orderDetails.room))) || `#${orderDetails.room}`)
+                              : (customerRooms.length > 0 ? 'Select room' : 'No rooms found')}
+                      </Text>
+                      <Text style={{ color: '#6B7280' }}>
+                        {roomDropdownOpen ? '▲' : '▼'}
+                      </Text>
+                    </TouchableOpacity>
 
-                <Text style={styles.label}>Steward</Text>
-                <View>
-                  <TouchableOpacity
-                    style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
-                    onPress={() => setStewardDropdownOpen(p => !p)}
-                    activeOpacity={0.85}
-                  >
-                    <Text>
-                      {orderDetails.stewardId
-                        ? (stewardFullName(stewards.find(s => String(s.id) === String(orderDetails.stewardId))) || `#${orderDetails.stewardId}`)
-                        : 'None'}
-                    </Text>
-                    <Text style={{ color: '#6B7280' }}>{stewardDropdownOpen ? '▲' : '▼'}</Text>
-                  </TouchableOpacity>
+                    {!!roomsError && <Text style={{ paddingBottom: 8, color: 'red' }}>{roomsError}</Text>}
 
-                  {stewardDropdownOpen && (
-                    <View style={styles.paymentDropdown}>
-                      <TouchableOpacity
-                        key="none"
-                        style={styles.paymentDropdownOption}
-                        onPress={() => { setOrderDetails(prev => ({ ...prev, stewardId: '' })); setStewardDropdownOpen(false); }}
-                        activeOpacity={0.85}
-                      >
-                        <Text style={!orderDetails.stewardId ? styles.paymentMethodTextActive : styles.paymentMethodText}>None</Text>
-                      </TouchableOpacity>
-
-                      {stewardsLoading && <Text style={{ padding: 8 }}>Loading...</Text>}
-                      {stewardsError && <Text style={{ padding: 8, color: 'red' }}>{stewardsError}</Text>}
-
-                      {stewards.map(s => (
+                    {roomDropdownOpen && orderDetails.customer && !roomsLoading && (
+                      <View style={styles.paymentDropdown}>
                         <TouchableOpacity
-                          key={String(s.id)}
+                          key="room-none"
                           style={styles.paymentDropdownOption}
-                          onPress={() => { setOrderDetails(prev => ({ ...prev, stewardId: String(s.id) })); setStewardDropdownOpen(false); }}
+                          onPress={() => { setOrderDetails(prev => ({ ...prev, room: '' })); setRoomDropdownOpen(false); }}
                           activeOpacity={0.85}
                         >
-                          <Text style={orderDetails.stewardId === String(s.id) ? styles.paymentMethodTextActive : styles.paymentMethodText}>
-                            {stewardFullName(s)}
+                          <Text style={!orderDetails.room ? styles.paymentMethodTextActive : styles.paymentMethodText}>
+                            None
                           </Text>
                         </TouchableOpacity>
-                      ))}
-                    </View>
+
+                        {customerRooms.map((ri, idx) => {
+                          const id = String(ri?.room?.id ?? idx);
+                          return (
+                            <TouchableOpacity
+                              key={id}
+                              style={styles.paymentDropdownOption}
+                              onPress={() => { setOrderDetails(prev => ({ ...prev, room: id })); setRoomDropdownOpen(false); }}
+                              activeOpacity={0.85}
+                            >
+                              <Text style={orderDetails.room === id ? styles.paymentMethodTextActive : styles.paymentMethodText}>
+                                {roomLabel(ri) || `#${id}`}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    )}
+
+                    {/* Manual fallback if rooms not returned */}
+                    {orderDetails.customer && !roomsLoading && customerRooms.length === 0 && (
+                      <TextInput
+                        style={styles.input}
+                        placeholder="Manual room (optional)"
+                        value={orderDetails.room}
+                        onChangeText={(text) => setOrderDetails(prev => ({ ...prev, room: text }))}
+                        keyboardType="default"
+                      />
+                    )}
+                  </View>
+
+                  <Text style={styles.label}>Steward</Text>
+                  <View>
+                    <TouchableOpacity
+                      style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+                      onPress={() => setStewardDropdownOpen(p => !p)}
+                      activeOpacity={0.85}
+                    >
+                      <Text>
+                        {orderDetails.stewardId
+                          ? (stewardFullName(stewards.find(s => String(s.id) === String(orderDetails.stewardId))) || `#${orderDetails.stewardId}`)
+                          : 'None'}
+                      </Text>
+                      <Text style={{ color: '#6B7280' }}>{stewardDropdownOpen ? '▲' : '▼'}</Text>
+                    </TouchableOpacity>
+
+                    {stewardDropdownOpen && (
+                      <View style={styles.paymentDropdown}>
+                        <TouchableOpacity
+                          key="none"
+                          style={styles.paymentDropdownOption}
+                          onPress={() => { setOrderDetails(prev => ({ ...prev, stewardId: '' })); setStewardDropdownOpen(false); }}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={!orderDetails.stewardId ? styles.paymentMethodTextActive : styles.paymentMethodText}>None</Text>
+                        </TouchableOpacity>
+
+                        {stewardsLoading && <Text style={{ padding: 8 }}>Loading...</Text>}
+                        {stewardsError && <Text style={{ padding: 8, color: 'red' }}>{stewardsError}</Text>}
+
+                        {stewards.map(s => (
+                          <TouchableOpacity
+                            key={String(s.id)}
+                            style={styles.paymentDropdownOption}
+                            onPress={() => { setOrderDetails(prev => ({ ...prev, stewardId: String(s.id) })); setStewardDropdownOpen(false); }}
+                            activeOpacity={0.85}
+                          >
+                            <Text style={orderDetails.stewardId === String(s.id) ? styles.paymentMethodTextActive : styles.paymentMethodText}>
+                              {stewardFullName(s)}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.serviceChargeRow}>
+                    <Text>Enable Service Charge ({serviceChargePercent}%)</Text>
+                    <Switch value={enableServiceCharge} onValueChange={setEnableServiceCharge} />
+                  </View>
+
+                  {/* New: Immediate Finalization Toggle */}
+                  {!editingRunningOrderId && (
+                    <>
+                      <View style={styles.serviceChargeRow}>
+                        <Text>Finalize Immediately</Text>
+                        <Switch 
+                          value={immediateFinalize} 
+                          onValueChange={(val) => {
+                            setImmediateFinalize(val);
+                            if (!val) {
+                              // Reset payment fields when disabled
+                              setSubmitPaymentMethod('Cash');
+                              setSubmitPaidAmount('');
+                              setSubmitGivenAmount('');
+                              setSubmitChangeAmount(null);
+                              setSubmitPaymentDropdownOpen(false);
+                            }
+                          }} 
+                        />
+                      </View>
+
+                      {/* Payment fields when finalize is enabled */}
+                      {immediateFinalize && (
+                        <View style={styles.finalizeFieldsContainer}>
+                          <Text style={styles.label}>Payment Method</Text>
+                          <View>
+                            <TouchableOpacity
+                              style={[styles.input, styles.finalizeDropdownTrigger]}
+                              onPress={() => setSubmitPaymentDropdownOpen(p => !p)}
+                              activeOpacity={0.85}
+                            >
+                              <Text style={styles.finalizeDropdownText}>{submitPaymentMethod}</Text>
+                              <Text style={styles.finalizeDropdownIcon}>{submitPaymentDropdownOpen ? '▲' : '▼'}</Text>
+                            </TouchableOpacity>
+
+                            {submitPaymentDropdownOpen && (
+                              <View style={styles.paymentDropdown}>
+                                {['Cash', 'Card', 'Free'].map(pm => (
+                                  <TouchableOpacity
+                                    key={pm}
+                                    style={styles.paymentDropdownOption}
+                                    onPress={() => { setSubmitPaymentMethod(pm); setSubmitPaymentDropdownOpen(false); }}
+                                    activeOpacity={0.85}
+                                  >
+                                    <Text style={submitPaymentMethod === pm ? styles.paymentMethodTextActive : styles.paymentMethodText}>
+                                      {pm}
+                                    </Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </View>
+                            )}
+                          </View>
+
+                          <Text style={styles.label}>Paid Amount</Text>
+                          <TextInput
+                            style={[styles.input, styles.finalizeInput, submitPaymentMethod === 'Free' && styles.finalizeInputDisabled]}
+                            value={submitPaidAmount}
+                            onChangeText={setSubmitPaidAmount}
+                            placeholder="e.g., 1785.00"
+                            placeholderTextColor="#9CA3AF"
+                            editable={submitPaymentMethod !== 'Free'}
+                            keyboardType="numeric"
+                            returnKeyType="done"
+                            onSubmitEditing={() => Keyboard.dismiss()}
+                          />
+
+                          <Text style={styles.label}>Given Amount (optional)</Text>
+                          <TextInput
+                            style={[styles.input, styles.finalizeInput, submitPaymentMethod === 'Free' && styles.finalizeInputDisabled]}
+                            value={submitGivenAmount}
+                            onChangeText={setSubmitGivenAmount}
+                            placeholder="Optional"
+                            placeholderTextColor="#9CA3AF"
+                            editable={submitPaymentMethod !== 'Free'}
+                            keyboardType="numeric"
+                            returnKeyType="done"
+                            onSubmitEditing={() => Keyboard.dismiss()}
+                          />
+
+                          {submitChangeAmount !== null && (
+                            <View style={styles.finalizeChangeRow}>
+                              <Text style={styles.finalizeChangeLabel}>Change:</Text>
+                              <Text style={styles.finalizeChangeValue}>{currencyLabel}{submitChangeAmount.toFixed(2)}</Text>
+                            </View>
+                          )}
+                        </View>
+                      )}
+                    </>
                   )}
-                </View>
 
-                <View style={styles.serviceChargeRow}>
-                  <Text>Enable Service Charge ({serviceChargePercent}%)</Text>
-                  <Switch value={enableServiceCharge} onValueChange={setEnableServiceCharge} />
-                </View>
+                  {/* Price Summary */}
+                  <View style={styles.priceSummaryContainer}>
+                    <Text style={styles.priceSummaryTitle}>Order Summary</Text>
+                    <View style={styles.priceSummaryRow}>
+                      <Text style={styles.priceSummaryLabel}>Subtotal:</Text>
+                      <Text style={styles.priceSummaryValue}>{currencyLabel}{cartTotal.toFixed(2)}</Text>
+                    </View>
+                    <View style={styles.priceSummaryRow}>
+                      <Text style={styles.priceSummaryLabel}>Service Charge ({serviceChargePercent}%):</Text>
+                      <Text style={styles.priceSummaryValue}>
+                        {currencyLabel}{enableServiceCharge ? displayedServiceCharge.toFixed(2) : '0.00'}
+                      </Text>
+                    </View>
+                    <View style={[styles.priceSummaryRow, styles.priceSummaryTotal]}>
+                      <Text style={styles.priceTotalLabel}>Total:</Text>
+                      <Text style={styles.priceTotalValue}>
+                        {currencyLabel}{(cartTotal + displayedServiceCharge).toFixed(2)}
+                      </Text>
+                    </View>
+                  </View>
 
-                {/* Price Summary */}
-                <View style={styles.priceSummaryContainer}>
-                  <Text style={styles.priceSummaryTitle}>Order Summary</Text>
-                  <View style={styles.priceSummaryRow}>
-                    <Text style={styles.priceSummaryLabel}>Subtotal:</Text>
-                    <Text style={styles.priceSummaryValue}>{currencyLabel}{cartTotal.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.priceSummaryRow}>
-                    <Text style={styles.priceSummaryLabel}>Service Charge ({serviceChargePercent}%):</Text>
-                    <Text style={styles.priceSummaryValue}>
-                      {currencyLabel}{enableServiceCharge ? displayedServiceCharge.toFixed(2) : '0.00'}
-                    </Text>
-                  </View>
-                  <View style={[styles.priceSummaryRow, styles.priceSummaryTotal]}>
-                    <Text style={styles.priceTotalLabel}>Total:</Text>
-                    <Text style={styles.priceTotalValue}>
-                      {currencyLabel}{(cartTotal + displayedServiceCharge).toFixed(2)}
-                    </Text>
+                  <View style={styles.modalButtons}>
+                    <TouchableOpacity
+                      style={styles.cancelButton}
+                      onPress={() => {
+                        setShowOrderModal(false);
+                        // Reset finalize fields when closing
+                        setImmediateFinalize(false);
+                        setSubmitPaymentMethod('Cash');
+                        setSubmitPaidAmount('');
+                        setSubmitGivenAmount('');
+                        setSubmitChangeAmount(null);
+                        setSubmitPaymentDropdownOpen(false);
+                      }}
+                    >
+                      <Text style={styles.cancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.submitButton,
+                        submitProcessing && styles.submitButtonDisabled
+                      ]}
+                      onPress={editingRunningOrderId ? confirmUpdateOrder : submitOrder}
+                      disabled={submitProcessing}
+                    >
+                      <Text style={styles.submitText}>
+                        {submitProcessing 
+                          ? 'Processing...' 
+                          : editingRunningOrderId 
+                            ? 'Update Order' 
+                            : (immediateFinalize ? 'Submit & Finalize' : 'Submit Order')
+                        }
+                      </Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
-
-                <View style={styles.modalButtons}>
-                  <TouchableOpacity
-                    style={styles.cancelButton}
-                    onPress={() => setShowOrderModal(false)}
-                  >
-                    <Text style={styles.cancelText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.submitButton}
-                    onPress={editingRunningOrderId ? confirmUpdateOrder : submitOrder}
-                  >
-                    <Text style={styles.submitText}>{editingRunningOrderId ? 'Update Order' : 'Submit Order'}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </ScrollView>
-          </View>
-        </TouchableWithoutFeedback>
+              </ScrollView>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Order Placed Modal */}
       <Modal visible={orderPlacedModalVisible} animationType="slide" transparent>
-        <TouchableWithoutFeedback onPress={() => setOrderPlacedModalVisible(false)}>
+        <TouchableWithoutFeedback onPress={() => {
+          setOrderPlacedModalVisible(false);
+          setPlacedOrderSummary(null);
+        }}>
           <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { maxHeight: '80%' }]}>
-              <Text style={styles.modalTitle}>Order Placed</Text>
-              {placedOrderSummary && (
-                <ScrollView>
-                  <Text style={styles.summaryText}>Order ID: {placedOrderSummary.orderId}</Text>
-                  <Text style={styles.summaryText}>Order Number: {placedOrderSummary.orderNumber}</Text>
-                  <Text style={styles.summarySubtitle}>Items:</Text>
-                  {placedOrderSummary.items.map((item: any, idx: number) => (
-                    <Text key={idx} style={styles.summaryText}>
-                      {item.qty}x {item.name} - {currencyLabel}{(item.qty * item.price).toFixed(2)}
-                    </Text>
-                  ))}
-                  <Text style={styles.summaryText}>Subtotal: {currencyLabel}{placedOrderSummary.subtotal.toFixed(2)}</Text>
-                  <Text style={styles.summaryText}>Service Charge: {currencyLabel}{placedOrderSummary.serviceCharge.toFixed(2)}</Text>
-                  <Text style={styles.totalText}>Total: {currencyLabel}{placedOrderSummary.total.toFixed(2)}</Text>
-                </ScrollView>
-              )}
-              <TouchableOpacity
-                style={styles.submitButton}
-                onPress={() => setOrderPlacedModalVisible(false)}
-              >
-                <Text style={styles.submitText}>Done</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={[styles.modalContent, { maxHeight: '80%' }]}>
+                <Text style={styles.modalTitle}>
+                  {placedOrderSummary?.finalized ? 'Order Finalized' : 'Order Placed'}
+                </Text>
+                {placedOrderSummary && (
+                  <ScrollView>
+                    <Text style={styles.summaryText}>Order ID: {placedOrderSummary.orderId}</Text>
+                    <Text style={styles.summaryText}>Order Number: {placedOrderSummary.orderNumber}</Text>
+                    {placedOrderSummary.finalized && (
+                      <Text style={styles.summaryText}>Payment: {placedOrderSummary.paymentMethod}</Text>
+                    )}
+                    <Text style={styles.summarySubtitle}>Items:</Text>
+                    {placedOrderSummary.items.map((item: any, idx: number) => (
+                      <Text key={idx} style={styles.summaryText}>
+                        {item.qty}x {item.name} - {currencyLabel}{(item.qty * item.price).toFixed(2)}
+                      </Text>
+                    ))}
+                    <Text style={styles.summaryText}>Subtotal: {currencyLabel}{placedOrderSummary.subtotal.toFixed(2)}</Text>
+                    <Text style={styles.summaryText}>Service Charge: {currencyLabel}{placedOrderSummary.serviceCharge.toFixed(2)}</Text>
+                    <Text style={styles.totalText}>Total: {currencyLabel}{placedOrderSummary.total.toFixed(2)}</Text>
+                    {placedOrderSummary.finalized && (
+                      <Text style={[styles.summaryText, { color: '#059669', fontWeight: '700', marginTop: 8 }]}>
+                        ✓ Order has been finalized
+                      </Text>
+                    )}
+                  </ScrollView>
+                )}
+                <TouchableOpacity
+                  style={styles.submitButton}
+                  onPress={() => {
+                    setOrderPlacedModalVisible(false);
+                    setPlacedOrderSummary(null);
+                  }}
+                >
+                  <Text style={styles.submitText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
           </View>
         </TouchableWithoutFeedback>
       </Modal>
@@ -1837,7 +2097,12 @@ const styles = StyleSheet.create({
 
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)' },
   keyboardAvoid: { flex:  1, justifyContent: 'center' },
-  scrollContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
+  scrollContent: { 
+    flexGrow: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
   modalContent: {
     backgroundColor: '#FFFFFF',
     padding: 18,
@@ -1859,7 +2124,15 @@ const styles = StyleSheet.create({
   modalButtons: { flexDirection: 'row', justifyContent: 'space-between' },
   cancelButton: { backgroundColor: '#F3F4F6', padding: 10, borderRadius: 5 },
   cancelText: { color: '#111827' },
-  submitButton: { backgroundColor: '#FF6B6B', padding: 10, borderRadius: 5 },
+  submitButton: { 
+    backgroundColor: '#FF6B6B', 
+    padding: 10, 
+    borderRadius: 5 
+  },
+  submitButtonDisabled: {
+    backgroundColor: '#FCA5A5',
+    opacity: 0.6,
+  },
   submitText: { color: '#FFFFFF' },
   billSummary: { marginBottom: 20 },
   totalText: { fontWeight: 'bold', fontSize: 18, color: '#111827' },
@@ -2166,4 +2439,12 @@ const styles = StyleSheet.create({
   },
   paymentMethodTextActive: { color: '#FF6B6B', fontWeight: '800' },
   paymentMethodText: { color: '#111827', fontWeight: '700' },
+  finalizeFieldsContainer: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 16,
+    marginVertical: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
 });

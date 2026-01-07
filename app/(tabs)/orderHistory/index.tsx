@@ -5,7 +5,7 @@ import { getOrders, Order, PaginatedOrders } from '../../../services/orderHistor
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { fetchAndMapOrderToBillData } from '../../../services/bill/billMapper';
 import { printThermalBill, generateBillPDF } from '../../../services/bill/printerService';
-import * as Sharing from 'expo-sharing';
+import DateTimePickerModal from 'react-native-modal-datetime-picker';
 
 // Add theme constants (from app/index.tsx)
 const PRIMARY = '#FF6B6B';
@@ -34,6 +34,10 @@ export default function OrderHistoryScreen() {
   const [filterStatus, setFilterStatus] = useState<string>(''); // e.g., 'Complete' | 'Processing'
   const [filterFromDate, setFilterFromDate] = useState<string>(''); // YYYY-MM-DD
   const [filterToDate, setFilterToDate] = useState<string>(''); // YYYY-MM-DD
+
+  // Date picker states
+  const [isFromDatePickerVisible, setFromDatePickerVisibility] = useState(false);
+  const [isToDatePickerVisible, setToDatePickerVisibility] = useState(false);
 
   const [printingOrderId, setPrintingOrderId] = useState<number | null>(null);
   
@@ -210,6 +214,54 @@ export default function OrderHistoryScreen() {
     });
   };
 
+  // Helper: format date for display (DD/MM/YYYY)
+  const formatDateDisplay = (dateStr: string) => {
+    if (!dateStr) return 'Select Date';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return 'Select Date';
+    return d.toLocaleDateString('en-GB'); // DD/MM/YYYY format
+  };
+
+  // Helper: format date to YYYY-MM-DD
+  const formatDateToString = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Show from date picker
+  const showFromDatePicker = () => {
+    setFromDatePickerVisibility(true);
+  };
+
+  // Hide from date picker
+  const hideFromDatePicker = () => {
+    setFromDatePickerVisibility(false);
+  };
+
+  // Handle from date confirm
+  const handleFromDateConfirm = (date: Date) => {
+    setFilterFromDate(formatDateToString(date));
+    hideFromDatePicker();
+  };
+
+  // Show to date picker
+  const showToDatePicker = () => {
+    setToDatePickerVisibility(true);
+  };
+
+  // Hide to date picker
+  const hideToDatePicker = () => {
+    setToDatePickerVisibility(false);
+  };
+
+  // Handle to date confirm
+  const handleToDateConfirm = (date: Date) => {
+    setFilterToDate(formatDateToString(date));
+    hideToDatePicker();
+  };
+
   function onLoadMore() {
     if (!hasMore || loadingMore) return;
     loadOrders(page + 1, true);
@@ -330,13 +382,64 @@ export default function OrderHistoryScreen() {
                 </View>
               </View>
 
-              {/* Date filters (manual input YYYY-MM-DD) */}
+              {/* Date filters with date pickers */}
               <View style={styles.filterRow}>
                 <Text style={styles.filterLabel}>From</Text>
-                <TextInput style={styles.dateInput} placeholder="YYYY-MM-DD" placeholderTextColor="#9CA3AF" value={filterFromDate} onChangeText={setFilterFromDate} />
-                <Text style={[styles.filterLabel, { marginLeft: 12 }]}>To</Text>
-                <TextInput style={styles.dateInput} placeholder="YYYY-MM-DD" placeholderTextColor="#9CA3AF" value={filterToDate} onChangeText={setFilterToDate} />
+                <TouchableOpacity
+                  style={styles.datePickerButton}
+                  onPress={showFromDatePicker}
+                >
+                  <MaterialCommunityIcons name="calendar" size={18} color="#6B7280" />
+                  <Text style={styles.datePickerText}>{formatDateDisplay(filterFromDate)}</Text>
+                </TouchableOpacity>
+                {filterFromDate && (
+                  <TouchableOpacity
+                    style={styles.clearDateButton}
+                    onPress={() => setFilterFromDate('')}
+                  >
+                    <MaterialCommunityIcons name="close-circle" size={18} color="#9CA3AF" />
+                  </TouchableOpacity>
+                )}
               </View>
+
+              <View style={styles.filterRow}>
+                <Text style={styles.filterLabel}>To</Text>
+                <TouchableOpacity
+                  style={styles.datePickerButton}
+                  onPress={showToDatePicker}
+                >
+                  <MaterialCommunityIcons name="calendar" size={18} color="#6B7280" />
+                  <Text style={styles.datePickerText}>{formatDateDisplay(filterToDate)}</Text>
+                </TouchableOpacity>
+                {filterToDate && (
+                  <TouchableOpacity
+                    style={styles.clearDateButton}
+                    onPress={() => setFilterToDate('')}
+                  >
+                    <MaterialCommunityIcons name="close-circle" size={18} color="#9CA3AF" />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Date Picker Modals */}
+              <DateTimePickerModal
+                isVisible={isFromDatePickerVisible}
+                mode="date"
+                onConfirm={handleFromDateConfirm}
+                onCancel={hideFromDatePicker}
+                date={filterFromDate ? new Date(filterFromDate) : new Date()}
+                maximumDate={new Date()}
+              />
+
+              <DateTimePickerModal
+                isVisible={isToDatePickerVisible}
+                mode="date"
+                onConfirm={handleToDateConfirm}
+                onCancel={hideToDatePicker}
+                date={filterToDate ? new Date(filterToDate) : (filterFromDate ? new Date(filterFromDate) : new Date())}
+                minimumDate={filterFromDate ? new Date(filterFromDate) : undefined}
+                maximumDate={new Date()}
+              />
 
               {/* Actions */}
               <View style={styles.filterActions}>
@@ -737,6 +840,34 @@ const styles = StyleSheet.create({
     color: '#111827',
     marginTop: 4
   },
+
+  datePickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(15,23,42,0.1)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#fff',
+    minWidth: 150,
+    gap: 8,
+    marginTop: 4,
+  },
+
+  datePickerText: {
+    fontSize: 14,
+    color: '#111827',
+    fontWeight: '600',
+  },
+
+  clearDateButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    marginLeft: 4,
+    marginTop: 4,
+  },
+
   filterActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6 },
   actionButton: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8 },
   applyButton: { backgroundColor: PRIMARY },
