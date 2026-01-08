@@ -2,6 +2,7 @@ import type { AxiosRequestConfig } from 'axios';
 import type { Order, CreateOrderRequest, CreateOrderResponse, CartItem } from '../types/Order';
 import type { MenuItem } from '../types/menu';
 import { apiClient } from './apiClient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Add types for the running orders endpoint
 type RunningOrder = {
@@ -81,6 +82,40 @@ export class OrderService {
   private restaurantId: number = 2;
 
   constructor(private client = apiClient) {}
+
+  // Helper to get user ID from storage
+  private async getUserIdFromStorage(): Promise<string | null> {
+    try {
+      // Try multiple possible keys where user data might be stored
+      const possibleKeys = ['userData', 'user', 'authUser', 'currentUser', 'loginData'];
+      
+      for (const key of possibleKeys) {
+        const data = await AsyncStorage.getItem(key);
+        if (data) {
+          console.log(`[OrderService] Found data in AsyncStorage key '${key}':`, data);
+          try {
+            const parsed = JSON.parse(data);
+            const userId = parsed?.user_id || parsed?.id || parsed?.userId || parsed?.user?.id || parsed?.user?.user_id;
+            if (userId) {
+              console.log(`[OrderService] Extracted user ID from '${key}':`, userId);
+              return String(userId);
+            }
+          } catch (parseErr) {
+            console.log(`[OrderService] Key '${key}' is not JSON, raw value:`, data);
+            // If it's just a plain ID string
+            if (data && !isNaN(Number(data))) {
+              return String(data);
+            }
+          }
+        }
+      }
+      
+      console.log('[OrderService] No user ID found in any AsyncStorage key');
+    } catch (err) {
+      console.error('[OrderService] Failed to get user ID from storage:', err);
+    }
+    return null;
+  }
 
   createOrder(tableId?: string): string {
     const orderId = "new";
@@ -184,19 +219,45 @@ export class OrderService {
     const headerStewardId =
       (this.client as any)?.defaults?.headers?.common?.['X-User-Id'] ??
       (this.client as any)?.defaults?.headers?.common?.['user-id'] ??
+      (this.client as any)?.defaults?.headers?.common?.['userId'] ??
       (this.client as any)?.defaults?.headers?.['X-User-Id'] ??
       (this.client as any)?.defaults?.headers?.['user-id'] ??
+      (this.client as any)?.defaults?.headers?.['userId'] ??
       undefined;
 
+    console.log('[POS/Service] ALL API CLIENT HEADERS:');
+    console.log(JSON.stringify((this.client as any)?.defaults?.headers, null, 2));
+
+    // Try to get user ID from storage if not in headers
+    const storageUserId = !headerStewardId ? await this.getUserIdFromStorage() : null;
+
+    console.log('[POS/Service] Steward ID Resolution:');
+    console.log('  - Provided stewardId:', orderData.stewardId);
+    console.log('  - Header User ID:', headerStewardId);
+    console.log('  - Storage User ID:', storageUserId);
+
     const stewardValue: string = (() => {
+      // First priority: explicitly provided steward ID
       if (orderData.stewardId && String(orderData.stewardId).trim().length > 0) {
+        console.log('  - Using provided steward ID:', orderData.stewardId);
         return String(orderData.stewardId);
       }
+      // Second priority: current logged-in user from headers
       if (headerStewardId && String(headerStewardId).trim().length > 0) {
+        console.log('  - Using header user ID as steward:', headerStewardId);
         return String(headerStewardId);
       }
-      return ""; // empty string when not available
+      // Third priority: user ID from storage
+      if (storageUserId && String(storageUserId).trim().length > 0) {
+        console.log('  - Using storage user ID as steward:', storageUserId);
+        return String(storageUserId);
+      }
+      // Fallback: empty string
+      console.log('  - No steward ID available, using empty string');
+      return "";
     })();
+
+    console.log('  - Final steward_id value:', stewardValue);
 
     const requestBody: CreateOrderRequest = {
       order_id: "new",

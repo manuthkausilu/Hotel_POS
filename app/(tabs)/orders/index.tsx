@@ -409,6 +409,22 @@ export default function OrdersScreen() {
   };
 
   const placeOrder = () => {
+    // Get current user ID from API client headers
+    const headerUserId =
+      (orderService as any).client?.defaults?.headers?.common?.['X-User-Id'] ??
+      (orderService as any).client?.defaults?.headers?.common?.['user-id'] ??
+      (orderService as any).client?.defaults?.headers?.['X-User-Id'] ??
+      (orderService as any).client?.defaults?.headers?.['user-id'] ??
+      undefined;
+
+    // Set default steward ID to current user if not already set
+    if (headerUserId && !orderDetails.stewardId) {
+      setOrderDetails(prev => ({
+        ...prev,
+        stewardId: String(headerUserId)
+      }));
+    }
+
     setShowOrderModal(true);
   };
 

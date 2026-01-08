@@ -17,7 +17,7 @@ export default function Drawer({ isOpen, onClose }: DrawerProps) {
     { icon: 'home-outline', label: 'Dashboard', route: '/' },
     { icon: 'restaurant-outline', label: 'Menu', route: '../menu' },
     { icon: 'list-outline', label: 'History', route: '../orderHistory' },
-    { icon: 'notifications-outline', label: 'Notifications', route: '../debug/asyncStorageDebug' },
+    // { icon: 'notifications-outline', label: 'Notifications', route: '../debug/asyncStorageDebug' },
   ];
 
   const handleNavigate = (route: any) => {
