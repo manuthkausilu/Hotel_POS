@@ -28,6 +28,9 @@ export default function OrderHistoryScreen() {
 
   const navigation = useNavigation<any>();
 
+  // Search state - client-side filtering
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
   // Filter state and panel visibility
   const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
   const [filterType, setFilterType] = useState<string>(''); // e.g., 'Take Away' | 'Dine In'
@@ -300,6 +303,37 @@ export default function OrderHistoryScreen() {
     loadOrders(1, false);
   }
 
+  // Handle search - just update the query, filtering happens via useMemo
+  const handleSearch = (text: string) => {
+    setSearchQuery(text);
+  };
+
+  // Clear search
+  const clearSearch = () => {
+    setSearchQuery('');
+  };
+
+  const filteredOrders = React.useMemo(() => {
+    if (!searchQuery.trim()) {
+      return orders;
+    }
+    
+    const query = searchQuery.toLowerCase().trim();
+    return orders.filter((order) => {
+      const orderId = (order.order_id || String(order.id)).toLowerCase();
+      const customerName = (order.customer_name || '').toLowerCase();
+      const status = (order.status || '').toLowerCase();
+      const type = (order.type || '').toLowerCase();
+      
+      return (
+        orderId.includes(query) ||
+        customerName.includes(query) ||
+        status.includes(query) ||
+        type.includes(query)
+      );
+    });
+  }, [orders, searchQuery]);
+
   const renderFooter = () => {
     if (!hasMore) return null;
     return (
@@ -345,6 +379,26 @@ export default function OrderHistoryScreen() {
                 color={filtersOpen ? '#fff' : '#6b7280'}
               />
             </TouchableOpacity>
+          </View>
+
+          {/* Search Bar */}
+          <View style={styles.searchContainer}>
+            <View style={styles.searchInputWrapper}>
+              <MaterialCommunityIcons name="magnify" size={20} color="#9CA3AF" style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search by order ID, customer name..."
+                placeholderTextColor="#9CA3AF"
+                value={searchQuery}
+                onChangeText={handleSearch}
+                returnKeyType="search"
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={clearSearch} style={styles.clearSearchButton}>
+                  <MaterialCommunityIcons name="close-circle" size={18} color="#9CA3AF" />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
 
           {/* Filter panel (toggleable) */}
@@ -459,11 +513,15 @@ export default function OrderHistoryScreen() {
             <Text style={styles.errorText}>{error}</Text>
           ) : (
             <FlatList
-              data={orders}
+              data={filteredOrders}
               keyExtractor={(item) => String(item.id)}
               contentContainerStyle={{ paddingBottom: 24, paddingTop: 8 }}
               ListEmptyComponent={() =>
-                !loading ? <Text style={[styles.emptyText, { color: '#6b7280' }]}>No orders found</Text> : null
+                !loading ? (
+                  <Text style={[styles.emptyText, { color: '#6b7280' }]}>
+                    {searchQuery.trim() ? 'No matching orders found' : 'No orders found'}
+                  </Text>
+                ) : null
               }
               renderItem={({ item }) => {
                 const statusStyle = getStatusColor(item.status);
@@ -922,6 +980,42 @@ const styles = StyleSheet.create({
   
   printButtonDisabled: {
     opacity: 0.5,
+  },
+
+  // Search bar styles
+  searchContainer: {
+    marginBottom: 12,
+  },
+
+  searchInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(15,23,42,0.08)',
+    paddingHorizontal: 12,
+    height: 44,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+  },
+
+  searchIcon: {
+    marginRight: 8,
+  },
+
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#111827',
+    paddingVertical: 0,
+  },
+
+  clearSearchButton: {
+    padding: 4,
   },
 
   // Bill Preview Modal Styles
