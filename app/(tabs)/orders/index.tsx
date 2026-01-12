@@ -1105,6 +1105,13 @@ export default function OrdersScreen() {
       Alert.alert('Error', 'No order selected to cancel');
       return;
     }
+    
+    // Validate that reason is provided
+    if (!cancelReason || cancelReason.trim().length === 0) {
+      Alert.alert('Required', 'Please provide a reason for cancellation');
+      return;
+    }
+    
     setCancelProcessing(true);
     try {
       const res = await orderService.cancelOrder({ order_id: cancelingOrderId, reason: cancelReason });
@@ -1718,9 +1725,10 @@ export default function OrdersScreen() {
              <TouchableWithoutFeedback>
                <View style={[styles.modalContent, { width: '90%', maxWidth: 520 }]}>
                  <Text style={{ fontSize: 16, fontWeight: '800', marginBottom: 8 }}>Cancel Order #{cancelingOrderId}</Text>
+                 <Text style={{ fontSize: 14, color: '#DC2626', marginBottom: 8 }}>* Reason is required</Text>
                  <TextInput
                    style={[styles.input, { minHeight: 80, textAlignVertical: 'top' }]}
-                   placeholder="Reason (optional)"
+                   placeholder="Reason for cancellation *"
                    placeholderTextColor="#9CA3AF"
                    value={cancelReason}
                    onChangeText={setCancelReason}
