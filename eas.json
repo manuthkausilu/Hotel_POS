@@ -9,7 +9,8 @@
       "distribution": "internal",
        "android": {
         "env": {
-          "EAS_NO_ARTIFACTORY": "1"
+          "EAS_NO_ARTIFACTORY": "1",
+          "GRADLE_OPTS": "-Xmx4096m -XX:MaxMetaspaceSize=1024m"
         }
       }
     },
@@ -19,15 +20,17 @@
         "buildType": "apk",
         "image": "latest",
         "env": {
-          "EAS_NO_ARTIFACTORY": "1"
-               }
+          "EAS_NO_ARTIFACTORY": "1",
+          "GRADLE_OPTS": "-Xmx4096m -XX:MaxMetaspaceSize=1024m"
+        }
       }
     },
     "production": {
       "autoIncrement": true,
       "android": {
         "env": {
-          "EAS_NO_ARTIFACTORY": "1"
+          "EAS_NO_ARTIFACTORY": "1",
+          "GRADLE_OPTS": "-Xmx4096m -XX:MaxMetaspaceSize=1024m"
         }
       }
     }
