@@ -19,7 +19,12 @@
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "android": {
+        "env": {
+          "EAS_NO_ARTIFACTORY": "1"
+        }
+      }
     }
   },
   "submit": {
