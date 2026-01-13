@@ -11,7 +11,11 @@
     "preview": {
       "distribution": "internal",
       "android": {
-        "buildType": "apk"
+        "buildType": "apk",
+        "image": "latest",
+        "env": {
+          "EAS_NO_ARTIFACTORY": "1"
+               }
       }
     },
     "production": {
