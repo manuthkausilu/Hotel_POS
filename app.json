@@ -60,13 +60,14 @@
         "expo-build-properties",
         {
           "android": {
-            "enableProguardInReleaseBuilds": true,
-            "enableShrinkResourcesInReleaseBuilds": true,
-            "compileSdkVersion": 34,
+            "compileSdkVersion": 35,
             "targetSdkVersion": 34,
             "minSdkVersion": 24,
-            "usesCleartextTraffic": false,
-            "enableMinifyInReleaseBuilds": true
+            "buildToolsVersion": "35.0.0",
+            "kotlinVersion": "2.0.21",
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "usesCleartextTraffic": false
           },
           "ios": {
             "deploymentTarget": "15.1"
@@ -75,8 +76,7 @@
       ]
     ],
     "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": false
+      "typedRoutes": true
     },
     "extra": {
       "router": {},
