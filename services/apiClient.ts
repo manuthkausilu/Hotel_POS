@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
-const API_BASE_URL = 'https://demo.trackerstay.com/api';
+// const API_BASE_URL = 'https://demo.trackerstay.com/api';
+const API_BASE_URL = (process.env.API_BASE_URL as string) ?? 'https://demo.trackerstay.com/api';
 const TOKEN_KEY = '@auth_token';
 
 const apiClient = axios.create({

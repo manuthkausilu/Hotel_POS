@@ -14,7 +14,8 @@ import { printThermalBill } from '../../../services/bill/printerService';
 import { getHotelSettings, type HotelSettings } from '../../../services/hotelSettingService';
 
 const { width, height } = Dimensions.get('window');
-const imageBase = 'https://app.trackerstay.com/storage/';
+// const imageBase = 'https://app.trackerstay.com/storage/';
+const imageBase = (process.env.IMAGE_BASE_URL as string) ?? 'https://app.trackerstay.com/storage/';
 
 export default function OrdersScreen() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -569,14 +570,14 @@ export default function OrdersScreen() {
                 Alert.alert('Print Error', errorMessage || 'Failed to print bill');
               }
             }
-            
-            // Refresh running orders after successful finalization
-            await fetchRunningOrders(true);
           }
         } catch (finalizeErr: any) {
           Alert.alert('Finalize Error', finalizeErr?.response?.data?.message ?? finalizeErr?.message ?? 'Order created but finalization failed');
         }
       }
+
+      // Refresh running orders after successful order placement
+      await fetchRunningOrders(true);
 
       // Reset ALL state before showing summary
       setCart([]);

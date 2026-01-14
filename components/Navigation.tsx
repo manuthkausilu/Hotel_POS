@@ -15,7 +15,7 @@ export default function Drawer({ isOpen, onClose }: DrawerProps) {
 
   const menuItems = [
     { icon: 'home-outline', label: 'Dashboard', route: '/' },
-    { icon: 'restaurant-outline', label: 'Menu', route: '../menu' },
+    // { icon: 'restaurant-outline', label: 'Menu', route: '../menu' },
     { icon: 'list-outline', label: 'History', route: '../orderHistory' },
     // { icon: 'notifications-outline', label: 'Notifications', route: '../debug/asyncStorageDebug' },
   ];
@@ -83,10 +83,13 @@ export default function Drawer({ isOpen, onClose }: DrawerProps) {
                 ]}
                 onPress={() => handleNavigate(item.route)}
               >
-                <View style={styles.menuIconContainer}>
-                  <Ionicons name={item.icon as any} size={22} color="#FF6B6B" />
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <View style={styles.menuIconContainer}>
+                    <Ionicons name={item.icon as any} size={22} color="#FF6B6B" />
+                  </View>
+                  <Text style={styles.menuLabel}>{item.label}</Text>
                 </View>
-                <Text style={styles.menuLabel}>{item.label}</Text>
+                <Ionicons size={18} color="#9CA3AF" />
               </Pressable>
             ))}
           </View>
@@ -185,6 +188,7 @@ const styles = StyleSheet.create({
   },
   menuSection: {
     paddingVertical: 20,
+    paddingHorizontal: 12,
   },
   sectionTitle: {
     fontSize: 11,
@@ -197,23 +201,32 @@ const styles = StyleSheet.create({
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingVertical: 14,
-    paddingHorizontal: 20,
-    marginHorizontal: 12,
-    marginVertical: 2,
-    borderRadius: 10,
+    paddingHorizontal: 18,
+    marginHorizontal: 4,
+    marginVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FFE4E6',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   menuItemPressed: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#FFF1F2',
   },
   menuIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#FFF1F1',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFF1F2',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: 14,
   },
   menuLabel: {
     fontSize: 15,
