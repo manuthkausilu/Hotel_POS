@@ -139,7 +139,7 @@ export class OrderService {
     return this.orders.get(orderId);
   }
 
-  addItemToOrder(orderId: string, menuItem: MenuItem & { modifiers?: Array<{ menu_id: number; name: string }> }, quantity: number = 1, notes?: string): void {
+  addItemToOrder(orderId: string, menuItem: MenuItem & { modifiers?: Array<{ menu_id: number; name: string }>; discount?: number }, quantity: number = 1, notes?: string): void {
     const order = this.orders.get(orderId);
     if (!order) throw new Error('Order not found');
 
@@ -150,6 +150,10 @@ export class OrderService {
     
     if (existingItem) {
       existingItem.quantity += quantity;
+      // Update discount if provided
+      if (menuItem.discount !== undefined) {
+        existingItem.discount = menuItem.discount;
+      }
     } else {
       order.items.push({
         id: Date.now(),
@@ -159,6 +163,7 @@ export class OrderService {
         quantity,
         notes,
         modifiers: menuItem.modifiers,
+        discount: menuItem.discount || 0,
       });
     }
     this.updateTotal(orderId);
@@ -174,7 +179,7 @@ export class OrderService {
   private updateTotal(orderId: string): void {
     const order = this.orders.get(orderId);
     if (!order) return;
-    order.total = order.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    order.total = order.items.reduce((sum, item) => sum + (item.price * item.quantity - (item.discount || 0)), 0);
   }
 
   async submitOrder(
@@ -200,9 +205,11 @@ export class OrderService {
       name: item.name,
       qty: item.quantity,
       price: item.price,
-      total: item.price * item.quantity,
+      total: item.price * item.quantity - (item.discount || 0), // Apply discount to total
+      discount: item.discount || 0, // Include discount
       row_id: "new",
       modifiers: item.modifiers || [],
+      note: item.notes || undefined, // Include note if present
     }));
 
     const normalizedOrderType = orderData.orderType?.toLowerCase().includes('take') ? 'Take away' : 'Dine In';
@@ -360,7 +367,6 @@ export class OrderService {
     try {
       console.log('[POS/Service] UPSERT ORDER REQUEST:', JSON.stringify(payload, null, 2));
 
-      // If we have a numeric internal id, try a direct PUT first (less chance of being treated as a create)
       const numericId = Number(payload.order_id);
       if (Number.isFinite(numericId) && numericId > 0) {
         try {
@@ -369,12 +375,10 @@ export class OrderService {
           console.log('[POS/Service] Upsert (PUT) response:', JSON.stringify(putRes.data, null, 2));
           return putRes.data;
         } catch (putErr) {
-          // fallback to POST if PUT is not supported or fails
           console.warn('[POS/Service] PUT failed, falling back to POST:', putErr);
         }
       }
 
-      // fallback: POST to /pos/orders
       const res = await this.client.post<CreateOrderResponse>('/pos/orders', payload, config);
       console.log('[POS/Service] Upsert (POST) response:', JSON.stringify(res.data, null, 2));
       return res.data;

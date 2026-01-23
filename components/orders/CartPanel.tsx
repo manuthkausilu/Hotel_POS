@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Dimensions, TextInput } from 'react-native';
 import type { MenuItem } from '../../types/menu';
 
 const { height } = Dimensions.get('window');
@@ -8,6 +8,7 @@ interface CartItem {
   entryId: string;
   item: MenuItem;
   quantity: number;
+  discount?: number;
   combos?: { comboId: number; menuId: number; menu?: any }[];
   rowId?: string | number;
 }
@@ -17,6 +18,7 @@ interface CartPanelProps {
   visible: boolean;
   onToggle: () => void;
   onUpdateQuantity: (entryId: string, delta: number) => void;
+  onUpdateDiscount: (entryId: string, discount: number) => void;
   onRemoveItem: (entryId: string) => void;
   onPlaceOrder: () => void;
   onClearCart: () => void;
@@ -29,6 +31,7 @@ export default function CartPanel({
   visible,
   onToggle,
   onUpdateQuantity,
+  onUpdateDiscount,
   onRemoveItem,
   onPlaceOrder,
   onClearCart,
@@ -38,7 +41,9 @@ export default function CartPanel({
   const cartTotal = cart.reduce((sum, c) => {
     const base = Number(c.item.price) || 0;
     const combosPrice = (c.combos || []).reduce((s, sc) => s + (Number(sc.menu?.price) || 0), 0);
-    return sum + (base + combosPrice) * c.quantity;
+    const itemTotal = (base + combosPrice) * c.quantity;
+    const discount = Number(c.discount) || 0;
+    return sum + (itemTotal - discount);
   }, 0);
 
   if (!visible) return null;
@@ -66,38 +71,73 @@ export default function CartPanel({
           ItemSeparatorComponent={() => <View style={styles.cartDivider} />}
           showsVerticalScrollIndicator={true}
           nestedScrollEnabled={true}
-          renderItem={({ item: cartItem }) => (
-            <View style={[styles.cartItem, isTabletMode && styles.tabletCartItem]}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.cartItemName, isTabletMode && styles.tabletCartItemName]} numberOfLines={2} ellipsizeMode="tail">
-                  {cartItem.item.name}
-                </Text>
-                <Text style={[styles.cartItemMeta, isTabletMode && styles.tabletCartItemMeta]}>Rs {Number(cartItem.item.price).toFixed(2)}</Text>
-                {cartItem.combos && cartItem.combos.length > 0 && (
-                  <View style={{ marginTop: 6 }}>
-                    {cartItem.combos.map((sc) => (
-                      <Text key={String(sc.comboId)} style={[styles.comboText, isTabletMode && styles.tabletComboText]}>
-                        + {sc.menu?.name ?? 'Option'}{' '}
-                        {sc.menu?.price ? `• Rs ${Number(sc.menu.price).toFixed(2)}` : ''}
-                      </Text>
-                    ))}
+          renderItem={({ item: cartItem }) => {
+            const base = Number(cartItem.item.price) || 0;
+            const combosPrice = (cartItem.combos || []).reduce((s, sc) => s + (Number(sc.menu?.price) || 0), 0);
+            const itemTotal = (base + combosPrice) * cartItem.quantity;
+            const discount = Number(cartItem.discount) || 0;
+            const finalTotal = itemTotal - discount;
+
+            return (
+              <View style={[styles.cartItem, isTabletMode && styles.tabletCartItem]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.cartItemName, isTabletMode && styles.tabletCartItemName]} numberOfLines={2} ellipsizeMode="tail">
+                    {cartItem.item.name}
+                  </Text>
+                  <Text style={[styles.cartItemMeta, isTabletMode && styles.tabletCartItemMeta]}>Rs {Number(cartItem.item.price).toFixed(2)}</Text>
+                  {cartItem.combos && cartItem.combos.length > 0 && (
+                    <View style={{ marginTop: 6 }}>
+                      {cartItem.combos.map((sc) => (
+                        <Text key={String(sc.comboId)} style={[styles.comboText, isTabletMode && styles.tabletComboText]}>
+                          + {sc.menu?.name ?? 'Option'}{' '}
+                          {sc.menu?.price ? `• Rs ${Number(sc.menu.price).toFixed(2)}` : ''}
+                        </Text>
+                      ))}
+                    </View>
+                  )}
+                  
+                  {/* Discount Input */}
+                  <View style={styles.discountRow}>
+                    <Text style={styles.discountLabel}>Discount:</Text>
+                    <TextInput
+                      style={styles.discountInput}
+                      value={discount > 0 ? String(discount) : ''}
+                      onChangeText={(text) => {
+                        const value = parseFloat(text) || 0;
+                        onUpdateDiscount(cartItem.entryId, value);
+                      }}
+                      placeholder="0"
+                      keyboardType="numeric"
+                    />
                   </View>
-                )}
-              </View>
-              <View style={[styles.qtyPill, styles.cartQtyPill, isTabletMode && styles.tabletCartQtyPill]}>
-                <TouchableOpacity onPress={() => onUpdateQuantity(cartItem.entryId, -1)}>
-                  <Text style={[styles.qtyPillButton, isTabletMode && styles.tabletCartQtyPillButton]}>-</Text>
+
+                  {/* Show item total and final total */}
+                  <View style={{ marginTop: 6 }}>
+                    <Text style={[styles.cartItemMeta, isTabletMode && styles.tabletCartItemMeta]}>
+                      Item Total: Rs {itemTotal.toFixed(2)}
+                    </Text>
+                    {discount > 0 && (
+                      <Text style={[styles.cartItemMeta, { color: '#059669', fontWeight: '700' }]}>After Discount: Rs {finalTotal.toFixed(2)}</Text>
+                    )}
+                  </View>
+                </View>
+                
+                <View style={[styles.qtyPill, styles.cartQtyPill, isTabletMode && styles.tabletCartQtyPill]}>
+                  <TouchableOpacity onPress={() => onUpdateQuantity(cartItem.entryId, -1)}>
+                    <Text style={[styles.qtyPillButton, isTabletMode && styles.tabletCartQtyPillButton]}>-</Text>
+                  </TouchableOpacity>
+                  <Text style={[styles.qtyPillValue, isTabletMode && styles.tabletCartQtyPillValue]}>{cartItem.quantity}</Text>
+                  <TouchableOpacity onPress={() => onUpdateQuantity(cartItem.entryId, 1)}>
+                    <Text style={[styles.qtyPillButton, isTabletMode && styles.tabletCartQtyPillButton]}>+</Text>
+                  </TouchableOpacity>
+                </View>
+                
+                <TouchableOpacity onPress={() => onRemoveItem(cartItem.entryId)}>
+                  <Text style={[styles.removeText, isTabletMode && styles.tabletRemoveText]}>Remove</Text>
                 </TouchableOpacity>
-                <Text style={[styles.qtyPillValue, isTabletMode && styles.tabletCartQtyPillValue]}>{cartItem.quantity}</Text>
-                <TouchableOpacity onPress={() => onUpdateQuantity(cartItem.entryId, 1)}>
-                  <Text style={[styles.qtyPillButton, isTabletMode && styles.tabletCartQtyPillButton]}>+</Text>
-                </TouchableOpacity>
               </View>
-              <TouchableOpacity onPress={() => onRemoveItem(cartItem.entryId)}>
-                <Text style={[styles.removeText, isTabletMode && styles.tabletRemoveText]}>Remove</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+            );
+          }}
         />
       </View>
 
@@ -228,5 +268,27 @@ const styles = StyleSheet.create({
   tabletClearCartButtonText: { fontSize: 16, fontWeight: '900' },
   tabletCartActions: {
     paddingTop: 8,
+  },
+  discountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
+  },
+  discountLabel: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  discountInput: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    minWidth: 60,
+    fontSize: 14,
+    color: '#111827',
+    backgroundColor: '#FFFFFF',
   },
 });

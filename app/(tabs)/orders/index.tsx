@@ -26,7 +26,7 @@ export default function OrdersScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
-  const [cart, setCart] = useState<{ entryId: string, item: MenuItem, quantity: number, combos?: { comboId: number, menuId: number, menu?: any }[], rowId?: string | number }[]>([]);
+  const [cart, setCart] = useState<{ entryId: string, item: MenuItem, quantity: number, discount?: number, combos?: { comboId: number, menuId: number, menu?: any }[], rowId?: string | number }[]>([]);
   const [showCart, setShowCart] = useState(false);
   const [menuData, setMenuData] = useState<MenuResponse | null>(null);
   const [categories, setCategories] = useState<{id: number | string, name?: string, label?: string}[]>([]);
@@ -126,11 +126,13 @@ export default function OrdersScreen() {
   const [roomsError, setRoomsError] = useState<string | null>(null);
   const [roomDropdownOpen, setRoomDropdownOpen] = useState(false);
 
-  // Calculate cartTotal so it is available in the component
+  // Calculate cartTotal with discount
   const cartTotal = cart.reduce((sum, c) => {
     const base = Number(c.item.price) || 0;
     const combosPrice = (c.combos || []).reduce((s, sc) => s + (Number(sc.menu?.price) || 0), 0);
-    return sum + (base + combosPrice) * c.quantity;
+    const itemTotal = (base + combosPrice) * c.quantity;
+    const discount = Number(c.discount) || 0;
+    return sum + (itemTotal - discount);
   }, 0);
 
   // currency label and displayed service charge depend on cartTotal and settings
@@ -409,6 +411,15 @@ export default function OrdersScreen() {
     }).filter(c => c.quantity > 0));
   };
 
+  const updateDiscount = (entryId: string, discount: number) => {
+    setCart(prev => prev.map(c => {
+      if (c.entryId === entryId) {
+        return { ...c, discount: discount >= 0 ? discount : 0 };
+      }
+      return c;
+    }));
+  };
+
   const removeFromCart = (entryId: string) => {
     setCart(prev => prev.filter(c => c.entryId !== entryId));
   };
@@ -507,7 +518,8 @@ export default function OrdersScreen() {
         
         const menuItemWithModifiers = {
           ...c.item,
-          modifiers: modifiers.length > 0 ? modifiers : undefined
+          modifiers: modifiers.length > 0 ? modifiers : undefined,
+          discount: c.discount || 0, // Include discount
         };
         
         orderService.addItemToOrder(orderId, menuItemWithModifiers, c.quantity, c.item.special_note ?? undefined);
@@ -817,13 +829,20 @@ export default function OrdersScreen() {
         const name = it.name ?? it.menu?.name ?? it.recipe_name ?? it.item_name ?? 'Item';
         const price = Number(it.price ?? it.menu?.price ?? it.rate ?? 0) || 0;
         const qty = Number(it.qty ?? it.quantity ?? 1) || 1;
+        const discount = Number(it.discount ?? 0) || 0; // Extract discount
         const combos = (it.modifiers || it.options || []).map((m: any, ci: number) => {
           const mid = m.menu_id ?? m.id ?? m.menu?.id ?? `${menuId}-opt-${ci}`;
           return { comboId: mid, menuId: mid, menu: { id: mid, name: m.name ?? m.menu?.name ?? 'Option', price: Number(m.price ?? m.menu?.price ?? 0) } };
         });
-        // preserve server's item row id when present so we can update rows instead of creating new ones
         const rowId = it.row_id ?? it.rowid ?? it.rowId ?? undefined;
-        return { entryId: `${menuId}-${Date.now()}-${idx}`, item: { id: menuId, name, price }, quantity: qty, combos: combos.length ? combos : undefined, rowId };
+        return { 
+          entryId: `${menuId}-${Date.now()}-${idx}`, 
+          item: { id: menuId, name, price }, 
+          quantity: qty, 
+          discount, // Include discount
+          combos: combos.length ? combos : undefined, 
+          rowId 
+        };
       });
 
       // set basic order meta if present
@@ -865,7 +884,6 @@ export default function OrdersScreen() {
     if (!editingRunningOrderId) return Alert.alert('Error', 'No order selected for update');
     if (cart.length === 0) return Alert.alert('Error', 'Cart is empty');
     
-    // Prevent double submission
     if (submitProcessing) return;
 
     try {
@@ -886,10 +904,12 @@ export default function OrdersScreen() {
           name: c.item.name,
           qty: c.quantity,
           price: c.item.price,
-          total: (Number(c.item.price) || 0) * c.quantity,
+          total: (Number(c.item.price) || 0) * c.quantity - (c.discount || 0),
+          discount: c.discount || 0,
           // reuse existing row id when present; otherwise send "new" to create a new row
           row_id: c.rowId ?? "new",
           modifiers: c.combos ? c.combos.map((sc: any) => ({ menu_id: sc.menuId, name: sc.menu?.name || 'Option' })) : [],
+          note: c.item.special_note || undefined,
         })),
       };
 
@@ -944,9 +964,9 @@ export default function OrdersScreen() {
        <>
          {/* Replace the inline search/header block with a modern search bar */}
          <View style={[styles.searchBar, isTabletOrPOS && styles.tabletSearchBar]}>
-           <View style={styles.searchInputWrapper}>
+           <View style={[styles.searchInputWrapper, isTabletOrPOS && styles.tabletSearchInputWrapper]}>
              <TextInput
-               style={styles.searchInput}
+               style={[styles.searchInput, isTabletOrPOS && styles.tabletSearchInput]}
                placeholder="Search items..."
                placeholderTextColor="#9CA3AF"
                value={searchQuery}
@@ -963,11 +983,11 @@ export default function OrdersScreen() {
 
            <View style={styles.countBadge}>
              <TouchableOpacity
-               style={styles.ongoingToggle}
+               style={[styles.ongoingToggle, isTabletOrPOS && styles.tabletOngoingToggle]}
                onPress={() => { setOngoingOpen(true); fetchRunningOrders(true); }}
                activeOpacity={0.85}
              >
-               <Text style={styles.ongoingToggleText}>Running</Text>
+               <Text style={[styles.ongoingToggleText, isTabletOrPOS && styles.tabletOngoingToggleText]}>Running</Text>
                <View style={styles.ongoingBadge}>
                  <Text style={styles.ongoingBadgeText}>{runningOrders.length}</Text>
                </View>
@@ -1004,10 +1024,19 @@ export default function OrdersScreen() {
                     <TouchableOpacity
                       activeOpacity={0.85}
                       onPress={() => setSelectedCategoryId(catId)}
-                      style={[styles.categoryPill, isActive && styles.categoryPillActive, isTabletOrPOS && styles.tabletCategoryPill]}
+                      style={[
+                        styles.categoryPill, 
+                        isTabletOrPOS && styles.tabletCategoryPill,
+                        isActive && styles.categoryPillActive,
+                        isTabletOrPOS && isActive && styles.tabletCategoryPillActive
+                      ]}
                     >
                       <Text
-                        style={[styles.categoryLabel, isActive && styles.categoryLabelActive, isTabletOrPOS && styles.tabletCategoryLabel]}
+                        style={[
+                          styles.categoryLabel, 
+                          isTabletOrPOS && styles.tabletCategoryLabel,
+                          isActive && styles.categoryLabelActive
+                        ]}
                         numberOfLines={1}
                         allowFontScaling={false}
                       >
@@ -1027,6 +1056,7 @@ export default function OrdersScreen() {
            contentContainerStyle={[styles.menuList, isTabletOrPOS && styles.tabletMenuList]}
            showsVerticalScrollIndicator={false}
            numColumns={isTabletOrPOS ? 2 : undefined}
+           columnWrapperStyle={isTabletOrPOS ? styles.tabletMenuColumnWrapper : undefined}
            renderItem={({ item }) => {
              const imgUri = item.image ? imageBase + item.image.replace(/^\/+/, '') : null;
              const aggregatedQty = cart.filter(c => String(c.item.id) === String(item.id)).reduce((s, c) => s + c.quantity, 0);
@@ -1194,6 +1224,7 @@ export default function OrdersScreen() {
               visible={true}
               onToggle={() => {}} // No toggle needed on tablet
               onUpdateQuantity={updateQuantity}
+              onUpdateDiscount={updateDiscount}
               onRemoveItem={removeFromCart}
               onPlaceOrder={editingRunningOrderId ? () => setShowOrderModal(true) : placeOrder}
               onClearCart={clearCart}
@@ -1211,6 +1242,7 @@ export default function OrdersScreen() {
             visible={showCart}
             onToggle={toggleCart}
             onUpdateQuantity={updateQuantity}
+            onUpdateDiscount={updateDiscount}
             onRemoveItem={removeFromCart}
             onPlaceOrder={editingRunningOrderId ? () => setShowOrderModal(true) : placeOrder}
             onClearCart={clearCart}
@@ -1934,6 +1966,7 @@ const styles = StyleSheet.create({
   tabletMenuSection: {
     flex: 0.6, // 60% width for menu
     paddingRight: 8,
+    overflow: 'hidden',
   },
   tabletCartSection: {
     flex: 0.4, // 40% width for cart
@@ -1942,166 +1975,81 @@ const styles = StyleSheet.create({
     paddingLeft: 16,
     backgroundColor: '#FAFAFA',
   },
+  // Search + category header (used in renderMenuItems)
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+    gap: 10,
+  },
   tabletSearchBar: {
     paddingHorizontal: 4,
     marginBottom: 20,
+    gap: 12,
+  },
+  searchInputWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
+    minWidth: 0, // Prevents flex item from overflowing
+  },
+  tabletSearchInputWrapper: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#111827',
+    fontSize: 14,
+    paddingVertical: 0,
+    minWidth: 0, // Prevents text input from overflowing
+  },
+  tabletSearchInput: {
+    fontSize: 15,
+  },
+  clearButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+    marginLeft: 10,
+  },
+  clearText: {
+    color: '#111827',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  countBadge: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  categoryArea: {
+    marginBottom: 12,
   },
   tabletCategoryArea: {
     minHeight: 80,
     marginBottom: 20,
+  },
+  categoryList: {
+    flexGrow: 0,
+  },
+  categoryListContent: {
+    paddingHorizontal: 8,
+    paddingVertical: 8,
   },
   tabletCategoryListContent: {
     paddingHorizontal: 8,
     paddingVertical: 10,
   },
   tabletCategoryPill: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    minHeight: 48,
-    minWidth: 90,
-  },
-  tabletCategoryLabel: {
-    fontSize: 15,
-  },
-  tabletMenuList: {
-    paddingBottom: 20,
-    paddingRight: 8,
-  },
-  tabletMenuCard: {
-    flex: 0.5,
-    marginHorizontal: 8,
-    marginBottom: 16,
-    padding: 20,
-    maxWidth: '48%',
-  },
-  tabletMenuImageWrapper: {
-    marginRight: 16,
-  },
-  tabletMenuImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 16,
-  },
-  tabletMenuTitle: {
-    fontSize: 18,
-    marginBottom: 6,
-  },
-  tabletMenuMeta: {
-    fontSize: 14,
-    marginTop: 6,
-  },
-  tabletMenuPrice: {
-    fontSize: 18,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  tabletQtyPill: {
-    paddingHorizontal: 4,
-  },
-  tabletQtyPillButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    fontSize: 20,
-  },
-  tabletQtyPillValue: {
-    minWidth: 32,
-    fontSize: 16,
-  },
-  tabletAddBadge: {
-    paddingVertical: 8,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-  },
-  tabletAddBadgeText: {
-    fontSize: 15,
-    letterSpacing: 0.5,
-  },
-  title: { fontSize: 20, fontWeight: 'bold', marginBottom: 10, color: '#111827' },
-  list: { paddingBottom: 24 },
-  sectionHeading: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 16,
-  },
-  sectionTitle: { fontSize: 24, fontWeight: '700', color: '#111827' },
-  sectionSubtitle: { color: '#6B7280', marginTop: 4 },
-  sectionBadge: {
-    backgroundColor: '#FF6B6B',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    minWidth: 72,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sectionBadgeText: { color: '#FFFFFF', fontWeight: '600', textAlign: 'center' },
-  categoryList: { marginBottom: 10 },
-  categoryListContent: { paddingHorizontal: 14, alignItems: 'center', paddingVertical: 6 },
-  categoryArea: {
-    minHeight: 64,
-    justifyContent: 'center',
-  },
-  serviceChargeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginVertical: 12,
-    paddingHorizontal: 4,
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-  searchInputWrapper: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 15,
-    color: '#111827',
-    paddingVertical: 6,
-    paddingHorizontal: 6,
-    backgroundColor: 'transparent',
-  },
-  clearButton: {
-    marginLeft: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  clearText: {
-    color: '#FF6B6B',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  countBadge: {
-    marginLeft: 12,
-    borderRadius: 999,
-    overflow: 'hidden',
-  },
-  countBadgeText: {
-    color: '#FF6B6B',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  categoryPill: {
     paddingHorizontal:  14,
     paddingVertical: 8,
     minHeight: 38,
@@ -2119,6 +2067,24 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 1,
   },
+  tabletCategoryPillActive: {
+    backgroundColor: '#FF6B6B',
+    borderColor: 'rgba(255,107,107,0.12)',
+    shadowOpacity: 0.08,
+    elevation: 2,
+  },
+  categoryPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minHeight: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(17,24,39,0.06)',
+  },
   categoryPillActive: {
     backgroundColor: '#FF6B6B',
     borderColor: 'rgba(255,107,107,0.12)',
@@ -2129,7 +2095,17 @@ const styles = StyleSheet.create({
     color: '#111827',
   },
   categoryLabelActive: { color: '#FFFFFF' },
+  tabletCategoryLabel: {
+    fontSize: 14,
+  },
   menuList: { paddingBottom: 160 },
+  tabletMenuList: {
+    paddingBottom: 220,
+  },
+  tabletMenuColumnWrapper: {
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+  },
   menuCard: {
     flexDirection: 'row',
     padding: 16,
@@ -2145,7 +2121,14 @@ const styles = StyleSheet.create({
     shadowRadius:  12,
     elevation: 2,
   },
-  menuImageWrapper: { marginRight:  14 },
+  tabletMenuCard: {
+    flex: 1,
+    marginHorizontal: 4,
+    minWidth: 0, // Prevents overflow
+    padding: 12, // Slightly smaller padding for tablet
+  },
+  menuImageWrapper: { marginRight:  14, flexShrink: 0 },
+  tabletMenuImageWrapper: { marginRight: 12 },
   availabilityDot: {
     width: 12,
     height: 12,
@@ -2158,11 +2141,14 @@ const styles = StyleSheet.create({
   },
   availabilityDotOff: { backgroundColor: '#D1D5DB' },
   menuImage: { width: 90, height: 90, borderRadius: 14, backgroundColor: '#F3F4F6', resizeMode: 'cover' },
+  tabletMenuImage: { width: 80, height: 80 },
    placeholder: { alignItems: 'center', justifyContent: 'center' },
   placeholderText: { color: '#6B7280', fontSize: 12 },
-  menuInfo: { flex: 1 },
+  menuInfo: { flex: 1, minWidth: 0 }, // Prevents overflow
   menuTitle: { fontSize: 16, fontWeight: '800', color: '#111827' },
+  tabletMenuTitle: { fontSize: 17 },
   menuMeta: { marginTop: 4, color: '#6B7280', fontSize: 13 },
+  tabletMenuMeta: { fontSize: 13 },
   menuFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 },
   menuPrice: {
     fontSize: 16,
@@ -2172,6 +2158,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 8,
   },
+  tabletMenuPrice: { fontSize: 17 },
   qtyPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2180,9 +2167,12 @@ const styles = StyleSheet.create({
     borderColor: '#FF6B6B',
     backgroundColor: '#FFFFFF',
   },
+  tabletQtyPill: {},
   cartQtyPill: { marginHorizontal: 12 },
   qtyPillButton: { paddingHorizontal: 12, paddingVertical:  4, fontSize: 18, fontWeight: '700', color: '#FF6B6B' },
+  tabletQtyPillButton: {},
   qtyPillValue: { minWidth: 26, textAlign: 'center', fontWeight: '700', color: '#111827' },
+  tabletQtyPillValue: {},
    addBadge: {
     backgroundColor: 'transparent',
     borderRadius: 10, // match menuCard radius
@@ -2193,11 +2183,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  tabletAddBadge: {},
   addBadgeText: {
     color: '#FF6B6B',
     fontWeight: '700',
     letterSpacing: 0.4,
   },
+  tabletAddBadgeText: {},
   cartSummaryBar: {
     position: 'absolute',
     left: 16,
@@ -2274,6 +2266,12 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 18, fontWeight: '800', color: '#111827' },
   input: { borderWidth: 1, borderColor: '#E5E7EB', padding: 10, marginBottom: 10, borderRadius: 5, color: '#111827', backgroundColor: '#FFFFFF' },
+  serviceChargeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
   modalButtons: { flexDirection: 'row', justifyContent: 'space-between' },
   cancelButton: { backgroundColor: '#F3F4F6', padding: 10, borderRadius: 5 },
   cancelText: { color: '#111827' },
@@ -2344,6 +2342,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 10,
     elevation: 4,
+    flexShrink: 0,
+  },
+  tabletOngoingToggle: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
   ongoingToggleText: {
     color: '#FFFFFF',
@@ -2351,6 +2354,9 @@ const styles = StyleSheet.create({
     marginRight: 8,
     fontSize: 14,
     letterSpacing: 0.4,
+  },
+  tabletOngoingToggleText: {
+    fontSize: 15,
   },
   ongoingBadge: {
     backgroundColor: '#FFFFFF',
