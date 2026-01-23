@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "hotel_pos",
+    "name": "trackerstay",
     "slug": "hotel_pos",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.rayff60.hotelpos"
+      "bundleIdentifier": "com.riblez.trackerstay"
     },
     "android": {
       "googleServicesFile": "./google-services.json",
@@ -27,7 +27,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.rayff60.hotel_pos",
+      "package": "com.riblez.trackerstay",
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "WAKE_LOCK",

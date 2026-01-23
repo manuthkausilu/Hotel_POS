@@ -2,13 +2,17 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, Alert, ScrollView, ActivityIndicator, SafeAreaView, StatusBar } from 'react-native';
+import { Pressable, StyleSheet, Text, View, Alert, ScrollView, ActivityIndicator, SafeAreaView, StatusBar, Dimensions } from 'react-native';
 import Drawer from '../components/Navigation';
 import { useAuth } from '../context/AuthContext';
 import OrdersScreen from './(tabs)/orders';
 import { NotificationProvider, useNotifications } from '../context/NotificationContext';
 import { registerFcmTokenAndStore, initNotificationListeners } from '../services/notificationService';
 import TopRightToast from '../components/TopRightToast';
+
+const { width } = Dimensions.get('window');
+const TABLET_BREAKPOINT = 768;
+const isTabletOrPOS = width >= TABLET_BREAKPOINT;
 
 // NotificationModal: renders notification history inside a modal-like full-screen overlay
 const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ visible, onClose }) => {
@@ -181,11 +185,11 @@ export default function HomeScreen() {
 					<View style={styles.container}>
 						<Drawer isOpen={drawerOpen} onClose={() => setDrawerOpen(false)} />
 						
-						<View style={styles.topBar}>
+						<View style={[styles.topBar, isTabletOrPOS && styles.tabletTopBar]}>
 							<Pressable style={styles.menuButton} onPress={() => setDrawerOpen(true)}>
-								<Ionicons name="menu" size={38} color="#FF6B6B" />
+								<Ionicons name="menu" size={isTabletOrPOS ? 42 : 38} color="#FF6B6B" />
 							</Pressable>
-							<Text style={styles.topBarTitle}>Trackerstay</Text>
+							<Text style={[styles.topBarTitle, isTabletOrPOS && styles.tabletTopBarTitle]}>Trackerstay</Text>
 							{/* notification bell */}
 							<View style={styles.rightControls}>
 								{/* toggles in-place modal */}
@@ -231,6 +235,10 @@ const styles = StyleSheet.create({
 		elevation: 3,
 		zIndex: 10,
 	},
+	tabletTopBar: {
+		paddingHorizontal: 24,
+		paddingVertical: 20,
+	},
 	menuButton: {
 		padding: 8,
 	},
@@ -238,6 +246,10 @@ const styles = StyleSheet.create({
 		fontSize: 25,
 		fontWeight: '700',
 		color: '#1F2937',
+	},
+	tabletTopBarTitle: {
+		fontSize: 28,
+		fontWeight: '800',
 	},
 	rightControls: {
 		width: 44,

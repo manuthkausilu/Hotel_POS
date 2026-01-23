@@ -42,4 +42,7 @@ app-example
 /ios
 # /android
 
-/hotelpos-e8b98-firebase-adminsdk-fbsvc-0a2a47025b.json
+/trackerstay-ea42e-firebase-adminsdk-fbsvc-67151e3b6c.json
+# Firebase / Google credentials
+*.json
+firebase-adminsdk*.json

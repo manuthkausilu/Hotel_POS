@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, FlatList, ActivityIndicator, TouchableOpacity, Alert, StyleSheet, Button, Dimensions, Platform, StatusBar, TextInput, Modal, ScrollView, SafeAreaView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { getOrders, Order, PaginatedOrders } from '../../../services/orderHistoryService';
@@ -313,7 +313,13 @@ export default function OrderHistoryScreen() {
     setSearchQuery('');
   };
 
-  const filteredOrders = React.useMemo(() => {
+  // responsive paddings - adjusted for SafeAreaView
+  const { width, height } = Dimensions.get('window');
+  const TABLET_BREAKPOINT = 768;
+  const isTabletOrPOS = width >= TABLET_BREAKPOINT;
+  const rightPadding = Math.max(12, Math.round(width * 0.04));
+
+  const filteredOrders = useMemo(() => {
     if (!searchQuery.trim()) {
       return orders;
     }
@@ -347,17 +353,13 @@ export default function OrderHistoryScreen() {
     );
   };
 
-  // responsive paddings - adjusted for SafeAreaView
-  const { width, height } = Dimensions.get('window');
-  const rightPadding = Math.max(12, Math.round(width * 0.04));
-
   return (
     <>
       <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
       <SafeAreaView style={styles.safeArea}>
-        <View style={[styles.container, { paddingRight: rightPadding }]}>
+        <View style={[styles.container, { paddingRight: rightPadding }, isTabletOrPOS && styles.tabletContainer]}>
           {/* Header with back button and centered title */}
-          <View style={styles.header}>
+          <View style={[styles.header, isTabletOrPOS && styles.tabletHeader]}>
             <TouchableOpacity
               style={styles.backButton}
               onPress={() => {
@@ -367,7 +369,7 @@ export default function OrderHistoryScreen() {
             >
               <Text style={[styles.backText, { color: BACK_BUTTON_COLOR }]}>Back</Text>
             </TouchableOpacity>
-            <Text numberOfLines={1} style={[styles.headerTitle, { color: TEXT_PRIMARY }]}>Order History</Text>
+            <Text numberOfLines={1} style={[styles.headerTitle, { color: TEXT_PRIMARY }, isTabletOrPOS && styles.tabletHeaderTitle]}>Order History</Text>
             {/* Filter toggle */}
             <TouchableOpacity
               style={[styles.filterButton, filtersOpen && styles.filterButtonActive]}
@@ -375,18 +377,18 @@ export default function OrderHistoryScreen() {
             >
               <MaterialCommunityIcons
                 name={filtersOpen ? 'filter' : 'filter-outline'}
-                size={25}
+                size={isTabletOrPOS ? 28 : 25}
                 color={filtersOpen ? '#fff' : '#6b7280'}
               />
             </TouchableOpacity>
           </View>
 
           {/* Search Bar */}
-          <View style={styles.searchContainer}>
-            <View style={styles.searchInputWrapper}>
-              <MaterialCommunityIcons name="magnify" size={20} color="#9CA3AF" style={styles.searchIcon} />
+          <View style={[styles.searchContainer, isTabletOrPOS && styles.tabletSearchContainer]}>
+            <View style={[styles.searchInputWrapper, isTabletOrPOS && styles.tabletSearchInputWrapper]}>
+              <MaterialCommunityIcons name="magnify" size={isTabletOrPOS ? 22 : 20} color="#9CA3AF" style={styles.searchIcon} />
               <TextInput
-                style={styles.searchInput}
+                style={[styles.searchInput, isTabletOrPOS && styles.tabletSearchInput]}
                 placeholder="Search by order ID, customer name..."
                 placeholderTextColor="#9CA3AF"
                 value={searchQuery}
@@ -395,7 +397,7 @@ export default function OrderHistoryScreen() {
               />
               {searchQuery.length > 0 && (
                 <TouchableOpacity onPress={clearSearch} style={styles.clearSearchButton}>
-                  <MaterialCommunityIcons name="close-circle" size={18} color="#9CA3AF" />
+                  <MaterialCommunityIcons name="close-circle" size={isTabletOrPOS ? 20 : 18} color="#9CA3AF" />
                 </TouchableOpacity>
               )}
             </View>
@@ -403,7 +405,7 @@ export default function OrderHistoryScreen() {
 
           {/* Filter panel (toggleable) */}
           {filtersOpen && (
-            <View style={styles.filterPanel}>
+            <View style={[styles.filterPanel, isTabletOrPOS && styles.tabletFilterPanel]}>
               {/* Type filter */}
               <View style={styles.filterRow}>
                 <Text style={styles.filterLabel}>Type</Text>
@@ -516,6 +518,8 @@ export default function OrderHistoryScreen() {
               data={filteredOrders}
               keyExtractor={(item) => String(item.id)}
               contentContainerStyle={{ paddingBottom: 24, paddingTop: 8 }}
+              numColumns={isTabletOrPOS ? 2 : 1}
+              key={isTabletOrPOS ? 'orders-grid-2' : 'orders-list-1'}
               ListEmptyComponent={() =>
                 !loading ? (
                   <Text style={[styles.emptyText, { color: '#6b7280' }]}>
@@ -537,19 +541,29 @@ export default function OrderHistoryScreen() {
                 const isPrinting = printingOrderId === item.id;
 
                 return (
-                  <View style={[styles.card, { marginRight: rightPadding / 2, marginTop: Math.max(10, Math.round(height * 0.012)) }]}>
+                  <View
+                    style={[
+                      styles.card,
+                      isTabletOrPOS && styles.tabletCard,
+                      {
+                        marginRight: isTabletOrPOS ? 12 : rightPadding / 2,
+                        marginLeft: isTabletOrPOS ? 0 : 0,
+                        marginTop: Math.max(10, Math.round(height * 0.012)),
+                      },
+                    ]}
+                  >
                     <View style={styles.leftAvatar}>
                       <Text style={styles.avatarText}>{initials}</Text>
                     </View>
 
                     <View style={styles.cardCenter}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={[styles.orderId, { color: TEXT_PRIMARY }]} numberOfLines={1}>{idLabel}</Text>
-                        <Text style={[styles.amount]} numberOfLines={1}>{amountText}</Text>
+                        <Text style={[styles.orderId, { color: TEXT_PRIMARY }, isTabletOrPOS && styles.tabletOrderId]} numberOfLines={1}>{idLabel}</Text>
+                        <Text style={[styles.amount, isTabletOrPOS && styles.tabletAmount]} numberOfLines={1}>{amountText}</Text>
                       </View>
-                      <Text style={styles.customer}>{item.customer_name || 'Unknown customer'}</Text>
+                      <Text style={[styles.customer, isTabletOrPOS && styles.tabletCustomer]}>{item.customer_name || 'Unknown customer'}</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, justifyContent: 'space-between' }}>
-                        <Text style={styles.meta}>{item.type ? `${item.type} • ` : ''}{formatDate(item.created_at)}</Text>
+                        <Text style={[styles.meta, isTabletOrPOS && styles.tabletMeta]}>{item.type ? `${item.type} • ` : ''}{formatDate(item.created_at)}</Text>
                         <View style={[styles.badge, { backgroundColor: statusStyle.background }]}>
                           <Text style={[styles.badgeText, { color: statusStyle.color }]}>{(item.status || '').toString().replace(/_/g, ' ')}</Text>
                         </View>
@@ -609,8 +623,8 @@ export default function OrderHistoryScreen() {
                   </View>
                 ) : previewBillData ? (
                   <>
-                    <ScrollView style={styles.billPreviewScroll}>
-                      <View style={styles.billPreviewContent}>
+                    <ScrollView style={styles.billPreviewScroll} contentContainerStyle={isTabletOrPOS ? styles.tabletBillPreviewScrollContent : undefined}>
+                      <View style={[styles.billPreviewContent, isTabletOrPOS && styles.tabletBillPreviewContent]}>
                         {/* Hotel Header */}
                         <View style={styles.billPreviewSection}>
                           <Text style={styles.billHotelName}>{previewBillData.hotelName}</Text>
@@ -788,6 +802,10 @@ const styles = StyleSheet.create({
     paddingBottom: 12, 
     backgroundColor: '#F8FAFC',
   },
+  tabletContainer: {
+    paddingLeft: 18,
+    paddingBottom: 18,
+  },
 
   // Header styles: slightly more compact, modern
   header: {
@@ -799,6 +817,11 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     marginTop: 8,
   },
+  tabletHeader: {
+    height: 72,
+    marginBottom: 10,
+    marginTop: 10,
+  },
   backButton: {
     position: 'absolute',
     left: 0,
@@ -809,6 +832,7 @@ const styles = StyleSheet.create({
   },
   backText: { fontSize: 16, fontWeight: '600' },
   headerTitle: { fontSize: 20, fontWeight: '700', textAlign: 'center' },
+  tabletHeaderTitle: { fontSize: 24, fontWeight: '800' },
   filterButton: { position: 'absolute', right: 0, top: 0, bottom: 0, justifyContent: 'center', paddingHorizontal: 12 },
   filterButtonActive: { backgroundColor: PRIMARY, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
 
@@ -827,6 +851,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start'
   },
+  tabletCard: {
+    // two-column grid: make card fit half width
+    flex: 1,
+    maxWidth: '48%',
+    padding: 16,
+    borderRadius: 14,
+  },
   leftAvatar: {
     width: 50,
     height: 50,
@@ -843,6 +874,10 @@ const styles = StyleSheet.create({
   customer: { color: '#374151', marginTop: 4, fontSize: 13 },
   meta: { color: '#6b7280', fontSize: 12 },
   amount: { color: '#111827', fontWeight: '700', fontSize: 14 },
+  tabletOrderId: { fontSize: 16, fontWeight: '800' },
+  tabletCustomer: { fontSize: 14 },
+  tabletMeta: { fontSize: 13 },
+  tabletAmount: { fontSize: 15, fontWeight: '800' },
 
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
   badgeText: { fontSize: 12, fontWeight: '700', textTransform: 'capitalize' },
@@ -862,6 +897,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
     shadowRadius: 6,
+  },
+  tabletFilterPanel: {
+    padding: 16,
+    borderRadius: 12,
   },
   filterRow: {
     flexDirection: 'row',
@@ -986,6 +1025,9 @@ const styles = StyleSheet.create({
   searchContainer: {
     marginBottom: 12,
   },
+  tabletSearchContainer: {
+    marginBottom: 16,
+  },
 
   searchInputWrapper: {
     flexDirection: 'row',
@@ -1002,6 +1044,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 4,
   },
+  tabletSearchInputWrapper: {
+    height: 52,
+    borderRadius: 12,
+  },
 
   searchIcon: {
     marginRight: 8,
@@ -1012,6 +1058,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#111827',
     paddingVertical: 0,
+  },
+  tabletSearchInput: {
+    fontSize: 16,
   },
 
   clearSearchButton: {
@@ -1080,6 +1129,10 @@ const styles = StyleSheet.create({
   billPreviewScroll: {
     flex: 1,
   },
+  tabletBillPreviewScrollContent: {
+    alignItems: 'center',
+    paddingBottom: 16,
+  },
 
   billPreviewContent: {
     backgroundColor: '#fff',
@@ -1091,6 +1144,12 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 3,
+  },
+  tabletBillPreviewContent: {
+    width: '92%',
+    maxWidth: 820,
+    borderRadius: 14,
+    padding: 24,
   },
 
   billPreviewSection: {

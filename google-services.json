@@ -1,21 +1,21 @@
 {
   "project_info": {
-    "project_number": "1041705305494",
-    "project_id": "hotelpos-e8b98",
-    "storage_bucket": "hotelpos-e8b98.firebasestorage.app"
+    "project_number": "65127011249",
+    "project_id": "trackerstay-ea42e",
+    "storage_bucket": "trackerstay-ea42e.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1041705305494:android:ef9d13213e4985d78149b7",
+        "mobilesdk_app_id": "1:65127011249:android:0b24a1dd864c3867e5a390",
         "android_client_info": {
-          "package_name": "com.rayff60.hotel_pos"
+          "package_name": "com.riblez.trackerstay"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyDxH0VyEwpZsQhxgWliguzeaXzyR1OWKCc"
+          "current_key": "AIzaSyB7gwkDO7CjDf5xdbDIdVwSlVpEfRmAQMI"
         }
       ],
       "services": {

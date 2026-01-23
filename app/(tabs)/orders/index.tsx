@@ -17,6 +17,10 @@ const { width, height } = Dimensions.get('window');
 // const imageBase = 'https://app.trackerstay.com/storage/';
 const imageBase = (process.env.IMAGE_BASE_URL as string) ?? 'https://app.trackerstay.com/storage/';
 
+// Responsive breakpoints
+const TABLET_BREAKPOINT = 768; // Tablet and POS machines
+const isTabletOrPOS = width >= TABLET_BREAKPOINT;
+
 export default function OrdersScreen() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -939,7 +943,7 @@ export default function OrdersScreen() {
      return (
        <>
          {/* Replace the inline search/header block with a modern search bar */}
-         <View style={styles.searchBar}>
+         <View style={[styles.searchBar, isTabletOrPOS && styles.tabletSearchBar]}>
            <View style={styles.searchInputWrapper}>
              <TextInput
                style={styles.searchInput}
@@ -971,7 +975,7 @@ export default function OrdersScreen() {
            </View>
          </View>
 
-         <View style={styles.categoryArea}>
+         <View style={[styles.categoryArea, isTabletOrPOS && styles.tabletCategoryArea]}>
          {categories.length > 0 && (() => {
             // build a categories data array that always includes "All" as first item
             const flatCats = [{ id: '__all__', label: 'All' }, ...categories.map((c) => ({ id: c.id ?? String(c), label: c.label ?? c.name ?? String(c) }))];
@@ -982,7 +986,7 @@ export default function OrdersScreen() {
                 data={flatCats}
                 keyExtractor={(item) => String(item.id)}
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.categoryListContent}
+                contentContainerStyle={[styles.categoryListContent, isTabletOrPOS && styles.tabletCategoryListContent]}
                 style={styles.categoryList}
                 extraData={selectedCategoryId}
                 removeClippedSubviews={false} // avoid Android clipping issues
@@ -1000,10 +1004,10 @@ export default function OrdersScreen() {
                     <TouchableOpacity
                       activeOpacity={0.85}
                       onPress={() => setSelectedCategoryId(catId)}
-                      style={[styles.categoryPill, isActive && styles.categoryPillActive]}
+                      style={[styles.categoryPill, isActive && styles.categoryPillActive, isTabletOrPOS && styles.tabletCategoryPill]}
                     >
                       <Text
-                        style={[styles.categoryLabel, isActive && styles.categoryLabelActive]}
+                        style={[styles.categoryLabel, isActive && styles.categoryLabelActive, isTabletOrPOS && styles.tabletCategoryLabel]}
                         numberOfLines={1}
                         allowFontScaling={false}
                       >
@@ -1020,8 +1024,9 @@ export default function OrdersScreen() {
          <FlatList
            data={filteredMenuItems}
            keyExtractor={(item) => item.id.toString()}
-           contentContainerStyle={styles.menuList}
+           contentContainerStyle={[styles.menuList, isTabletOrPOS && styles.tabletMenuList]}
            showsVerticalScrollIndicator={false}
+           numColumns={isTabletOrPOS ? 2 : undefined}
            renderItem={({ item }) => {
              const imgUri = item.image ? imageBase + item.image.replace(/^\/+/, '') : null;
              const aggregatedQty = cart.filter(c => String(c.item.id) === String(item.id)).reduce((s, c) => s + c.quantity, 0);
@@ -1029,43 +1034,43 @@ export default function OrdersScreen() {
              const isAvailable = item.is_available !== 0;
 
              return (
-               <View style={styles.menuCard}>
-                 <View style={styles.menuImageWrapper}>
+               <View style={[styles.menuCard, isTabletOrPOS && styles.tabletMenuCard]}>
+                 <View style={[styles.menuImageWrapper, isTabletOrPOS && styles.tabletMenuImageWrapper]}>
                    <View style={[styles.availabilityDot, !isAvailable && styles.availabilityDotOff]} />
                    {imgUri && !imageErrors[item.id] ? (
                      <Image
                        source={{ uri: imgUri }}
-                       style={styles.menuImage}
+                       style={[styles.menuImage, isTabletOrPOS && styles.tabletMenuImage]}
                        onError={() => setImageErrors(prev => ({ ...prev, [item.id]: true }))}
                      />
                    ) : (
-                     <View style={[styles.menuImage, styles.placeholder]}>
+                     <View style={[styles.menuImage, styles.placeholder, isTabletOrPOS && styles.tabletMenuImage]}>
                        <Text style={styles.placeholderText}>No image</Text>
                      </View>
                    )}
                  </View>
                  <View style={styles.menuInfo}>
-                   <Text style={styles.menuTitle}>{item.name}</Text>
+                   <Text style={[styles.menuTitle, isTabletOrPOS && styles.tabletMenuTitle]}>{item.name}</Text>
                    {item.special_note ? (
-                     <Text style={styles.menuMeta}>{item.special_note}</Text>
+                     <Text style={[styles.menuMeta, isTabletOrPOS && styles.tabletMenuMeta]}>{item.special_note}</Text>
                    ) : item.item_code ? (
-                     <Text style={styles.menuMeta}>Item code • {item.item_code}</Text>
+                     <Text style={[styles.menuMeta, isTabletOrPOS && styles.tabletMenuMeta]}>Item code • {item.item_code}</Text>
                    ) : null}
                    <View style={styles.menuFooter}>
-                     <Text style={styles.menuPrice}>{currencyLabel}{Number(item.price).toFixed(2)}</Text>
+                     <Text style={[styles.menuPrice, isTabletOrPOS && styles.tabletMenuPrice]}>{currencyLabel}{Number(item.price).toFixed(2)}</Text>
                      {aggregatedQty > 0 ? (
-                       <View style={styles.qtyPill}>
+                       <View style={[styles.qtyPill, isTabletOrPOS && styles.tabletQtyPill]}>
                          <TouchableOpacity onPress={() => cartEntryPreferredId && updateQuantity(cartEntryPreferredId, -1)}>
-                           <Text style={styles.qtyPillButton}>-</Text>
+                           <Text style={[styles.qtyPillButton, isTabletOrPOS && styles.tabletQtyPillButton]}>-</Text>
                          </TouchableOpacity>
-                         <Text style={styles.qtyPillValue}>{aggregatedQty}</Text>
+                         <Text style={[styles.qtyPillValue, isTabletOrPOS && styles.tabletQtyPillValue]}>{aggregatedQty}</Text>
                          <TouchableOpacity onPress={() => cartEntryPreferredId && updateQuantity(cartEntryPreferredId, 1)}>
-                           <Text style={styles.qtyPillButton}>+</Text>
+                           <Text style={[styles.qtyPillButton, isTabletOrPOS && styles.tabletQtyPillButton]}>+</Text>
                          </TouchableOpacity>
                        </View>
                      ) : (
-                       <TouchableOpacity style={styles.addBadge} onPress={() => addToCart(item)}>
-                         <Text style={styles.addBadgeText}>+ ADD</Text>
+                       <TouchableOpacity style={[styles.addBadge, isTabletOrPOS && styles.tabletAddBadge]} onPress={() => addToCart(item)}>
+                         <Text style={[styles.addBadgeText, isTabletOrPOS && styles.tabletAddBadgeText]}>+ ADD</Text>
                        </TouchableOpacity>
                      )}
                    </View>
@@ -1075,7 +1080,8 @@ export default function OrdersScreen() {
            }}
            ListFooterComponent={<View style={{ height: 80 }} />}
          />
-         {cart.length > 0 && !showCart && (
+         {/* Cart summary bar - only show on mobile when cart is hidden */}
+         {!isTabletOrPOS && cart.length > 0 && !showCart && (
            <TouchableOpacity style={styles.cartSummaryBar} onPress={() => setShowCart(true)} activeOpacity={0.9}>
              <View>
                <Text style={styles.cartSummaryItems}>{cart.length} {cart.length === 1 ? 'Item' : 'Items'}</Text>
@@ -1173,13 +1179,52 @@ export default function OrdersScreen() {
 
   return (
     <View style={styles.container}>
-      {renderMenuItems()}
+      {/* Responsive layout: side-by-side for tablet/POS, stacked for mobile */}
+      {isTabletOrPOS ? (
+        <View style={styles.tabletLayout}>
+          {/* Left side: Menu items */}
+          <View style={styles.tabletMenuSection}>
+            {renderMenuItems()}
+          </View>
+          
+          {/* Right side: Cart panel (always visible) */}
+          <View style={styles.tabletCartSection}>
+            <CartPanel
+              cart={cart}
+              visible={true}
+              onToggle={() => {}} // No toggle needed on tablet
+              onUpdateQuantity={updateQuantity}
+              onRemoveItem={removeFromCart}
+              onPlaceOrder={editingRunningOrderId ? () => setShowOrderModal(true) : placeOrder}
+              onClearCart={clearCart}
+              editingRunningOrderId={editingRunningOrderId}
+              isTabletMode={true}
+            />
+          </View>
+        </View>
+      ) : (
+        <>
+          {renderMenuItems()}
+          {/* Cart panel for mobile (overlay) */}
+          <CartPanel
+            cart={cart}
+            visible={showCart}
+            onToggle={toggleCart}
+            onUpdateQuantity={updateQuantity}
+            onRemoveItem={removeFromCart}
+            onPlaceOrder={editingRunningOrderId ? () => setShowOrderModal(true) : placeOrder}
+            onClearCart={clearCart}
+            editingRunningOrderId={editingRunningOrderId}
+            isTabletMode={false}
+          />
+        </>
+      )}
 
       {/* running orders overlay and drawer */}
       {ongoingOpen && (
         <>
           <TouchableOpacity style={styles.ongoingOverlay} activeOpacity={1} onPress={() => setOngoingOpen(false)} />
-          <View style={[styles.ongoingDrawer, styles.ongoingDrawerOpen]}>
+          <View style={[styles.ongoingDrawer, styles.ongoingDrawerOpen, isTabletOrPOS && styles.tabletOngoingDrawer]}>
             <View style={styles.ongoingHeader}>
               <Text style={styles.ongoingTitle}>Running Orders</Text>
               
@@ -1272,17 +1317,6 @@ export default function OrdersScreen() {
         </>
       )}
 
-      {/* Cart panel — now extracted to component */}
-      <CartPanel
-        cart={cart}
-        visible={showCart}
-        onToggle={toggleCart}
-        onUpdateQuantity={updateQuantity}
-        onRemoveItem={removeFromCart}
-        onPlaceOrder={editingRunningOrderId ? () => setShowOrderModal(true) : placeOrder}
-        onClearCart={clearCart}
-        editingRunningOrderId={editingRunningOrderId}
-      />
 
       {/* Order Modal */}
       <Modal visible={showOrderModal} animationType="slide" transparent>
@@ -1294,13 +1328,13 @@ export default function OrdersScreen() {
             <View style={styles.modalOverlay}>
               <ScrollView 
                 ref={orderModalScrollRef}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[styles.scrollContent, isTabletOrPOS && styles.tabletScrollContent]}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 nestedScrollEnabled={true}
               >
-                <View style={styles.modalContent}>
-                  <Text style={styles.modalTitle}>{editingRunningOrderId ? 'Update Order' : 'Order Details'}</Text>
+                <View style={[styles.modalContent, isTabletOrPOS && styles.tabletModalContent]}>
+                  <Text style={[styles.modalTitle, isTabletOrPOS && styles.tabletModalTitle]}>{editingRunningOrderId ? 'Update Order' : 'Order Details'}</Text>
 
                   <Text style={styles.label}>Order Type *</Text>
                   <View style={styles.segmentedControl}>
@@ -1891,6 +1925,97 @@ export default function OrdersScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 10, backgroundColor: '#FFFFFF' },
+  // Tablet/POS layout styles
+  tabletLayout: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 16,
+  },
+  tabletMenuSection: {
+    flex: 0.6, // 60% width for menu
+    paddingRight: 8,
+  },
+  tabletCartSection: {
+    flex: 0.4, // 40% width for cart
+    borderLeftWidth: 1,
+    borderLeftColor: '#E5E7EB',
+    paddingLeft: 16,
+    backgroundColor: '#FAFAFA',
+  },
+  tabletSearchBar: {
+    paddingHorizontal: 4,
+    marginBottom: 20,
+  },
+  tabletCategoryArea: {
+    minHeight: 80,
+    marginBottom: 20,
+  },
+  tabletCategoryListContent: {
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+  },
+  tabletCategoryPill: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    minHeight: 48,
+    minWidth: 90,
+  },
+  tabletCategoryLabel: {
+    fontSize: 15,
+  },
+  tabletMenuList: {
+    paddingBottom: 20,
+    paddingRight: 8,
+  },
+  tabletMenuCard: {
+    flex: 0.5,
+    marginHorizontal: 8,
+    marginBottom: 16,
+    padding: 20,
+    maxWidth: '48%',
+  },
+  tabletMenuImageWrapper: {
+    marginRight: 16,
+  },
+  tabletMenuImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 16,
+  },
+  tabletMenuTitle: {
+    fontSize: 18,
+    marginBottom: 6,
+  },
+  tabletMenuMeta: {
+    fontSize: 14,
+    marginTop: 6,
+  },
+  tabletMenuPrice: {
+    fontSize: 18,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  tabletQtyPill: {
+    paddingHorizontal: 4,
+  },
+  tabletQtyPillButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    fontSize: 20,
+  },
+  tabletQtyPillValue: {
+    minWidth: 32,
+    fontSize: 16,
+  },
+  tabletAddBadge: {
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+  },
+  tabletAddBadgeText: {
+    fontSize: 15,
+    letterSpacing: 0.5,
+  },
   title: { fontSize: 20, fontWeight: 'bold', marginBottom: 10, color: '#111827' },
   list: { paddingBottom: 24 },
   sectionHeading: {
@@ -1968,17 +2093,8 @@ const styles = StyleSheet.create({
   },
   countBadge: {
     marginLeft: 12,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
     borderRadius: 999,
-    borderWidth: 1,
-    borderColor: 'rgba(255,107,107,0.08)',
-    shadowColor: '#FF6B6B',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    overflow: 'hidden',
   },
   countBadgeText: {
     color: '#FF6B6B',
@@ -2138,13 +2254,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
+  tabletModalContent: {
+    padding: 24,
+    borderRadius: 16,
+    maxWidth: 800,
+  },
+  tabletScrollContent: {
+    paddingVertical: 30,
+  },
+  tabletModalTitle: {
+    fontSize: 22,
+    marginBottom: 8,
+  },
   modalHeader: {
     paddingVertical: 16,
     paddingHorizontal: 20,
     backgroundColor: '#FF6B6B',
     alignItems: 'flex-start',
   },
-  modalTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: '#111827' },
   input: { borderWidth: 1, borderColor: '#E5E7EB', padding: 10, marginBottom: 10, borderRadius: 5, color: '#111827', backgroundColor: '#FFFFFF' },
   modalButtons: { flexDirection: 'row', justifyContent: 'space-between' },
   cancelButton: { backgroundColor: '#F3F4F6', padding: 10, borderRadius: 5 },
@@ -2202,10 +2330,42 @@ const styles = StyleSheet.create({
   submitTextAlt: { color: '#FFFFFF', fontWeight: '800' },
   
   // Ongoing drawer styles
-  ongoingToggle: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 },
-  ongoingToggleText: { color: '#111827', fontWeight: '700', marginRight: 8, fontSize: 13 },
-  ongoingBadge: { backgroundColor: '#FF6B6B', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
-  ongoingBadgeText: { color: '#fff', fontWeight: '800', fontSize: 12 },
+  ongoingToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#FF6B6B',
+    borderWidth: 1,
+    borderColor: '#FB7185',
+    shadowColor: '#FF6B6B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  ongoingToggleText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    marginRight: 8,
+    fontSize: 14,
+    letterSpacing: 0.4,
+  },
+  ongoingBadge: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    minWidth: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ongoingBadgeText: {
+    color: '#FF6B6B',
+    fontWeight: '900',
+    fontSize: 12,
+  },
   ongoingOverlay: {
     position: 'absolute',
     top: 0,
@@ -2231,6 +2391,9 @@ const styles = StyleSheet.create({
     elevation: 8,
     borderLeftWidth: 1,
     borderLeftColor: '#F3F4F6',
+  },
+  tabletOngoingDrawer: {
+    width: 420,
   },
   ongoingDrawerOpen: { transform: [{ translateX: 0 }] },
   ongoingDrawerClosed: { transform: [{ translateX: 400 }] },
