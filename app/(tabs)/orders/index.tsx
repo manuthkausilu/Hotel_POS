@@ -18,6 +18,7 @@ import PlacedOrderModal from '../../../components/orders/PlacedOrderModal';
 import MenuList from '../../../components/orders/MenuList';
 import CancelModal from '../../../components/orders/CancelModal';
 import FinalizeModal from '../../../components/orders/FinalizeModal';
+import SplitOrderModal from '../../../components/orders/SplitOrderModal';
 import styles from './styles';
 
 const { width, height } = Dimensions.get('window');
@@ -132,6 +133,10 @@ export default function OrdersScreen() {
   const [roomsLoading, setRoomsLoading] = useState(false);
   const [roomsError, setRoomsError] = useState<string | null>(null);
   const [roomDropdownOpen, setRoomDropdownOpen] = useState(false);
+
+  // New: split bill state
+  const [splitModalVisible, setSplitModalVisible] = useState(false);
+  const [splitOrderId, setSplitOrderId] = useState<number | null>(null);
 
   // Calculate cartTotal with discount
   const cartTotal = cart.reduce((sum, c) => {
@@ -531,8 +536,12 @@ export default function OrdersScreen() {
           name: combo.menu?.name || 'Option'
         }));
 
+        const combosPrice = (c.combos || []).reduce((s, sc) => s + (Number(sc.menu?.price) || 0), 0);
+        const fullUnitPrice = Number(c.item.price) + combosPrice;
+
         const menuItemWithModifiers = {
           ...c.item,
+          price: fullUnitPrice, // Use price including combos
           modifiers: modifiers.length > 0 ? modifiers : undefined,
           discount: c.discount || 0, // Include discount
         };
@@ -540,14 +549,23 @@ export default function OrdersScreen() {
         orderService.addItemToOrder(orderId, menuItemWithModifiers, c.quantity, c.item.special_note ?? undefined);
       });
 
-      const subtotal = cart.reduce((sum, c) => {
+      // Calculate subtotal AFTER discounts for service charge calculation
+      const subtotalAfterDiscounts = cart.reduce((sum, c) => {
+        const base = Number(c.item.price) || 0;
+        const comboPrice = (c.combos || []).reduce((s, combo) => s + (Number(combo.menu?.price) || 0), 0);
+        const itemSubtotal = (base + comboPrice) * c.quantity;
+        const discount = Number(c.discount) || 0;
+        return sum + (itemSubtotal - discount);
+      }, 0);
+
+      const subtotalBeforeDiscounts = cart.reduce((sum, c) => {
         const base = Number(c.item.price) || 0;
         const comboPrice = (c.combos || []).reduce((s, combo) => s + (Number(combo.menu?.price) || 0), 0);
         return sum + (base + comboPrice) * c.quantity;
       }, 0);
 
-      const serviceCharge = enableServiceCharge ? subtotal * (serviceChargePercent / 100) : 0;
-      const totalAmount = subtotal + serviceCharge;
+      const serviceCharge = enableServiceCharge ? subtotalAfterDiscounts * (serviceChargePercent / 100) : 0;
+      const totalAmount = subtotalAfterDiscounts + serviceCharge;
 
       const selectedCustomer = orderDetails.customer
         ? customers.find(c => String(c.id) === String(orderDetails.customer))
@@ -590,19 +608,20 @@ export default function OrdersScreen() {
           const finalizeRes = await orderService.finalizeOrder(finalizePayload);
 
           if (finalizeRes && finalizeRes.success) {
-            // Print bill after finalization
-            try {
-              const billData = await fetchAndMapOrderToBillData(response.data.order_id);
-              await printThermalBill(billData);
-              console.log('Bill printed successfully for order:', response.data.order_id);
-            } catch (printErr: any) {
-              const errorMessage = printErr?.message || '';
-              if (!errorMessage.includes('cancelled') && !errorMessage.includes('Print cancelled')) {
-                Alert.alert('Print Error', errorMessage || 'Failed to print bill');
+            // Print bill in background
+            (async () => {
+              try {
+                console.log('[POS/UI] Starting background print (immediate) for order:', response.data.order_id);
+                const billData = await fetchAndMapOrderToBillData(response.data.order_id);
+                await printThermalBill(billData);
+                console.log('[POS/UI] Bill printed successfully (immediate) for order:', response.data.order_id);
+              } catch (printErr: any) {
+                console.warn('[POS/UI] Background print (immediate) failed:', printErr?.message);
               }
-            }
+            })();
           }
         } catch (finalizeErr: any) {
+          console.error('[POS/UI] Immediate finalization failed:', finalizeErr?.message);
           Alert.alert('Finalize Error', finalizeErr?.response?.data?.message ?? finalizeErr?.message ?? 'Order created but finalization failed');
         }
       }
@@ -627,8 +646,8 @@ export default function OrdersScreen() {
       setPlacedOrderSummary({
         orderId: response.data.order_id,
         orderNumber: response.data.order_number,
-        items: cart.map(c => ({ name: c.item.name, qty: c.quantity, price: Number(c.item.price) })),
-        subtotal,
+        items: cart.map(c => ({ name: c.item.name, qty: c.quantity, price: (Number(c.item.price) || 0) + (c.combos || []).reduce((s, sc) => s + (Number(sc.menu?.price) || 0), 0) })),
+        subtotal: subtotalAfterDiscounts,
         serviceCharge,
         total: totalAmount,
         finalized: wasFinalized,
@@ -745,6 +764,11 @@ export default function OrdersScreen() {
     setFinalizeModalVisible(true);
   };
 
+  const handleSplitPress = (id: number) => {
+    setSplitOrderId(id);
+    setSplitModalVisible(true);
+  };
+
   const confirmFinalize = async () => {
     if (!finalizeOrderId) return Alert.alert('Error', 'No order selected for finalize');
 
@@ -772,36 +796,41 @@ export default function OrdersScreen() {
       };
       const res = await orderService.finalizeOrder(payload);
       if (res && res.success) {
-        // Close finalize modal first
+        // RESET STATE IMMEDIATELY so UI is not stuck
+        setFinalizeProcessing(false);
         setFinalizeModalVisible(false);
         setPaymentMethod('Cash');
         setPaidAmount('');
         setGivenAmount('');
         setChangeAmount(null);
 
-        // Print bill directly
-        try {
-          const billData = await fetchAndMapOrderToBillData(finalizeOrderId);
-          await printThermalBill(billData);
-          console.log('Bill printed successfully for order:', finalizeOrderId);
-        } catch (printErr: any) {
-          // Only show error if not cancelled by user
-          const errorMessage = printErr?.message || '';
-          if (!errorMessage.includes('cancelled') && !errorMessage.includes('Print cancelled')) {
-            Alert.alert('Print Error', errorMessage || 'Failed to print bill');
+        // Print bill in background
+        (async () => {
+          try {
+            console.log('[POS/UI] Starting background print for order:', finalizeOrderId);
+            const billData = await fetchAndMapOrderToBillData(finalizeOrderId);
+            await printThermalBill(billData);
+            console.log('[POS/UI] Bill printed successfully for order:', finalizeOrderId);
+          } catch (printErr: any) {
+            const errorMessage = printErr?.message || '';
+            if (!errorMessage.includes('cancelled') && !errorMessage.includes('Print cancelled')) {
+              console.warn('[POS/UI] Background print failed:', errorMessage);
+              // We don't alert here to avoid interrupting the user's next action, 
+              // but we log it for debugging.
+            }
           }
-        }
+        })();
 
         // Refresh running orders
         await fetchRunningOrders(true);
         setFinalizeOrderId(null);
       } else {
+        setFinalizeProcessing(false);
         Alert.alert('Error', res?.message ?? 'Finalize failed');
       }
     } catch (err: any) {
-      Alert.alert('Error', err?.response?.data?.message ?? err?.message ?? 'Failed to finalize order');
-    } finally {
       setFinalizeProcessing(false);
+      Alert.alert('Error', err?.response?.data?.message ?? err?.message ?? 'Failed to finalize order');
     }
   };
 
@@ -914,18 +943,26 @@ export default function OrdersScreen() {
         steward_id: orderDetails.stewardId ?? '',
         restaurant_id: 2, // keep same default used elsewhere
         service_charge: enableServiceCharge ? Number((cartTotal * (serviceChargePercent / 100)).toFixed(2)) : 0,
-        cart: cart.map(c => ({
-          recipe_id: c.item.id,
-          name: c.item.name,
-          qty: c.quantity,
-          price: c.item.price,
-          total: (Number(c.item.price) || 0) * c.quantity - (c.discount || 0),
-          discount: c.discount || 0,
-          // reuse existing row id when present; otherwise send "new" to create a new row
-          row_id: c.rowId ?? "new",
-          modifiers: c.combos ? c.combos.map((sc: any) => ({ menu_id: sc.menuId, name: sc.menu?.name || 'Option' })) : [],
-          note: c.item.special_note || undefined,
-        })),
+        cart: cart.map(c => {
+          const comboPrice = (c.combos || []).reduce((s, sc) => s + (Number(sc.menu?.price) || 0), 0);
+          const fullPrice = (Number(c.item.price) || 0) + comboPrice;
+          const qty = c.quantity || 1;
+          const discount = c.discount || 0;
+          const itemTotal = (fullPrice * qty) - discount;
+
+          return {
+            recipe_id: c.item.id,
+            name: c.item.name,
+            qty: qty,
+            price: fullPrice,
+            total: itemTotal,
+            discount: discount,
+            // reuse existing row id when present; otherwise send "new" to create a new row
+            row_id: c.rowId ?? "new",
+            modifiers: c.combos ? c.combos.map((sc: any) => ({ menu_id: sc.menuId, name: sc.menu?.name || 'Option' })) : [],
+            note: c.item.special_note || undefined,
+          };
+        }),
       };
 
       // include external order identifier for trace/debug (backend will ignore unknown fields if unsupported)
@@ -1156,6 +1193,7 @@ export default function OrdersScreen() {
         onCancelPress={handleCancelPress}
         onEditPress={handleEditPress}
         onFinalizePress={handleFinalizePress}
+        onSplitPress={handleSplitPress}
         currencyLabel={currencyLabel}
         formatDateTime={formatDateTime}
         customerFullName={customerFullName}
@@ -1281,6 +1319,19 @@ export default function OrdersScreen() {
         setPaymentDropdownOpen={setPaymentDropdownOpen}
         finalizeProcessing={finalizeProcessing}
         onConfirm={confirmFinalize}
+      />
+
+      <SplitOrderModal
+        visible={splitModalVisible}
+        orderId={splitOrderId}
+        onClose={() => { setSplitModalVisible(false); setSplitOrderId(null); }}
+        currencyLabel={currencyLabel}
+        serviceChargePercent={serviceChargePercent}
+        onSuccess={() => {
+          setSplitModalVisible(false);
+          setSplitOrderId(null);
+          fetchRunningOrders(true);
+        }}
       />
     </View>
   );

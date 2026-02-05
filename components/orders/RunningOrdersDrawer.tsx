@@ -11,6 +11,7 @@ type Props = {
   onCancelPress: (id: number) => void;
   onEditPress: (id: number) => void;
   onFinalizePress: (id: number, total?: number) => void;
+  onSplitPress: (id: number) => void;
   currencyLabel: string;
   formatDateTime: (iso?: string) => string;
   customerFullName: (o: any) => string;
@@ -27,6 +28,7 @@ export default function RunningOrdersDrawer({
   onCancelPress,
   onEditPress,
   onFinalizePress,
+  onSplitPress,
   currencyLabel,
   formatDateTime,
   customerFullName,
@@ -93,6 +95,14 @@ export default function RunningOrdersDrawer({
                   activeOpacity={0.85}
                 >
                   <Text style={[styles.ongoingActionText, { color: '#065F46' }]}>Finalize</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.ongoingActionBtn, { borderColor: '#A5B4FC', backgroundColor: '#EEF2FF' }]}
+                  onPress={() => onSplitPress(o.id)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.ongoingActionText, { color: '#4338CA' }]}>Split</Text>
                 </TouchableOpacity>
               </View>
             </View>
