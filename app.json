@@ -82,7 +82,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": ""
+        "projectId": "f00de547-84d8-453a-b7ea-3acadee65628"
       }
     },
     "notification": {
@@ -90,6 +90,7 @@
       "iosDisplayInForeground": true,
       "androidMode": "default",
       "androidCollapsedTitle": "#{unread_notifications} new interactions"
-    }
+    },
+    "owner": "rayff60"
   }
 }
