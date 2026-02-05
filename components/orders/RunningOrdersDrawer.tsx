@@ -72,9 +72,9 @@ export default function RunningOrdersDrawer({
                 </View>
               ) : null}
 
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, gap: 8 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, gap: 8, flexWrap: 'wrap' }}>
                 <TouchableOpacity
-                  style={[styles.ongoingActionBtn, { borderColor: '#FCA5A5', backgroundColor: '#FFF1F2' }]}
+                  style={[styles.ongoingActionBtn, { borderColor: '#FCA5A5', backgroundColor: '#FFF1F2', width: '48%' }]}
                   onPress={() => onCancelPress(o.id)}
                   activeOpacity={0.85}
                 >
@@ -82,7 +82,7 @@ export default function RunningOrdersDrawer({
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.ongoingActionBtn, { borderColor: '#FBBF24', backgroundColor: '#FFFBEB' }]}
+                  style={[styles.ongoingActionBtn, { borderColor: '#FBBF24', backgroundColor: '#FFFBEB', width: '48%' }]}
                   onPress={() => onEditPress(o.id)}
                   activeOpacity={0.85}
                 >
@@ -90,7 +90,7 @@ export default function RunningOrdersDrawer({
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.ongoingActionBtn, { borderColor: '#86EFAC', backgroundColor: '#ECFDF5' }]}
+                  style={[styles.ongoingActionBtn, { borderColor: '#86EFAC', backgroundColor: '#ECFDF5', width: '48%' }]}
                   onPress={() => onFinalizePress(o.id, o.total)}
                   activeOpacity={0.85}
                 >
@@ -98,7 +98,7 @@ export default function RunningOrdersDrawer({
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.ongoingActionBtn, { borderColor: '#A5B4FC', backgroundColor: '#EEF2FF' }]}
+                  style={[styles.ongoingActionBtn, { borderColor: '#A5B4FC', backgroundColor: '#EEF2FF', width: '48%' }]}
                   onPress={() => onSplitPress(o.id)}
                   activeOpacity={0.85}
                 >
@@ -162,10 +162,10 @@ const styles = StyleSheet.create({
   ongoingTitle: { fontWeight: '800', fontSize: 16 },
   ongoingOrderCard: { borderWidth: 1, borderColor: '#F3F4F6', borderRadius: 10, padding: 12, marginBottom: 12, backgroundColor: '#FFFFFF' },
   ongoingStatusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, alignItems: 'center' },
-  ongoingActionBtn: { flex: 1, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center' },
+  ongoingActionBtn: { padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' },
   ongoingActionText: { color: '#111827', fontWeight: '700' },
-  refreshBtn: { backgroundColor: '#111827', borderColor: '#111827' },
+  refreshBtn: { flex: 1, backgroundColor: '#111827', borderColor: '#111827' },
   refreshBtnText: { color: '#FFFFFF' },
-  closeBtn: { backgroundColor: '#FF6B6B', borderColor: '#FF6B6B' },
+  closeBtn: { flex: 1, backgroundColor: '#FF6B6B', borderColor: '#FF6B6B' },
   closeBtnText: { color: '#FFFFFF' },
 });
