@@ -154,27 +154,30 @@ export interface InvoiceResponse {
 export async function getOrderInvoice(orderId: string | number): Promise<{ invoiceUrl: string; order: Order }> {
 	const endpoint = `/pos/orders/${orderId}/invoice`;
 	try {
-		console.log('📥 Fetching invoice:', endpoint);
+		console.log('📥 Fetching invoice from:', endpoint);
 		const res = await apiClient.get<InvoiceResponse>(endpoint);
 		const data = res.data;
-		
+
+		console.log('📦 Invoice API response success:', data?.success);
+
 		if (data && data.success && data.order && data.invoice_url) {
+			console.log('✅ Invoice data received for order:', orderId);
 			// Ensure invoice URL is absolute
 			let invoiceUrl = data.invoice_url;
 			if (!invoiceUrl.startsWith('http')) {
-				// Construct absolute URL if relative
 				const baseURL = apiClient.defaults.baseURL || 'https://app.trackerstay.com';
 				invoiceUrl = `${baseURL}${invoiceUrl.startsWith('/') ? invoiceUrl : '/' + invoiceUrl}`;
 			}
-			
-			return { 
-				invoiceUrl, 
-				order: data.order 
+			console.log('🔗 Invoice URL:', invoiceUrl);
+
+			return {
+				invoiceUrl,
+				order: data.order
 			};
 		}
-		
+
 		// If API returns success=false, try to surface message if present
-		const apiMessage = (res.data as any)?.message || 'Failed to fetch invoice';
+		const apiMessage = (data as any)?.message || 'Failed to fetch invoice';
 		throw new Error(apiMessage);
 	} catch (err) {
 		if (axios.isAxiosError(err)) {

@@ -4,7 +4,7 @@
     "slug": "hotel_pos",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/splash-icon.png",
     "scheme": "hotelpos",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -21,7 +21,7 @@
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "foregroundImage": "./assets/images/favicon.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
@@ -67,7 +67,8 @@
             "kotlinVersion": "2.0.21",
             "enableProguardInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
-            "usesCleartextTraffic": false
+            "usesCleartextTraffic": false,
+            "enableMinifyInReleaseBuilds": true
           },
           "ios": {
             "deploymentTarget": "15.1"
@@ -81,7 +82,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "eaa5efb9-8f4a-491a-b7cf-6eb363a6a08d"
+        "projectId": "577d0cfc-110c-4a4a-95c8-a16c06a6b94a"
       }
     },
     "notification": {

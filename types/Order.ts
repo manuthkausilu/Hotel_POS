@@ -4,6 +4,7 @@ export interface CartItem {
   qty: number;
   price: number;
   total: number;
+  discount?: number; // Add discount field
   row_id: string; // "new" or existing detail ID
   modifiers?: Array<{ menu_id: number; name: string }>;
   note?: string; // Internal use only - not sent to API
@@ -38,6 +39,7 @@ export interface OrderItem {
   name: string;
   price: number;
   quantity: number;
+  discount?: number;
   notes?: string;
   modifiers?: Array<{ menu_id: number; name: string }>;
 }
