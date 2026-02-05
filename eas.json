@@ -4,6 +4,9 @@
     "appVersionSource": "remote",
     "requireCommit": false
   },
+
+  "projectRoot": "Hotel_Pos",  
+  
   "build": {
     "development": {
       "developmentClient": true,
