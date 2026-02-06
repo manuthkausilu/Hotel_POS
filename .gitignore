@@ -44,5 +44,4 @@ app-example
 
 /trackerstay-ea42e-firebase-adminsdk-fbsvc-67151e3b6c.json
 # Firebase / Google credentials
-*.json
 firebase-adminsdk*.json
