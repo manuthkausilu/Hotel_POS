@@ -1,6 +1,6 @@
 // OrdersScreen: displays menu items and cart UI only.
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, Dimensions, Alert, Modal, TextInput, ScrollView, TouchableWithoutFeedback, Keyboard, Switch, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, Dimensions, Alert, Modal, TextInput, ScrollView, TouchableWithoutFeedback, Keyboard, Switch, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { fetchMenuData, fetchMenuItemByIdEndpoint } from '../../../services/menuService';
 import { orderService } from '../../../services/orderService';
 import { getStewards, Steward, formatStewardName } from '../../../services/staffService';
@@ -178,31 +178,38 @@ export default function OrdersScreen() {
     return () => { mounted = false; };
   }, []);
 
-  useEffect(() => {
-    const loadMenuData = async () => {
-      try {
-        const data = await fetchMenuData();
-        setMenuData(data);
-        const normalizedCategories = (data.categories || []).map((cat: any, index: number) => {
-          if (cat && typeof cat === 'object') {
-            const idValue = cat.id ?? cat.category_id ?? index;
-            const label = cat.label ?? cat.name ?? cat.category_name ?? cat.title ?? `Category ${idValue ?? index + 1}`;
-            return { ...cat, id: idValue, label };
-          }
-          if (typeof cat === 'string') return { id: cat, label: cat };
-          if (typeof cat === 'number') return { id: cat, label: `Category ${cat}` };
-          return { id: index, label: `Category ${index + 1}` };
-        });
-        setCategories(normalizedCategories);
-        setMenuItems(data.menus);
-      } catch (err) {
-        setError('Failed to load menu data');
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadMenuData();
+  const loadMenuData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchMenuData();
+      const normalizedCategories = (data.categories || []).map((cat: any, index: number) => {
+        if (cat && typeof cat === 'object') {
+          const idValue = cat.id ?? cat.category_id ?? index;
+          const label = cat.label ?? cat.name ?? cat.category_name ?? cat.title ?? `Category ${idValue ?? index + 1}`;
+          return { ...cat, id: idValue, label };
+        }
+        if (typeof cat === 'string') return { id: cat, label: cat };
+        if (typeof cat === 'number') return { id: cat, label: `Category ${cat}` };
+        return { id: index, label: `Category ${index + 1}` };
+      });
+      setMenuData(data);
+      setCategories(normalizedCategories);
+      setMenuItems(data.menus ?? []);
+    } catch (err: any) {
+      console.error('[OrdersScreen] Failed to load menu data', err);
+      setMenuData(null);
+      setCategories([]);
+      setMenuItems([]);
+      setError(err?.response?.data?.message ?? 'Failed to load menu data');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadMenuData();
+  }, [loadMenuData]);
 
   // fetch stewards on mount
   useEffect(() => {
@@ -1007,8 +1014,24 @@ export default function OrdersScreen() {
   });
 
   // Show simple loading/error early guards to avoid rendering the main UI prematurely
-  if (loading) return <Text>Loading...</Text>;
-  if (error) return <Text>{error}</Text>;
+  if (loading) {
+    return (
+      <View style={fallbackStyles.overlay}>
+        <ActivityIndicator size="large" color="#FF6B6B" />
+        <Text style={fallbackStyles.message}>Loading menu...</Text>
+      </View>
+    );
+  }
+  if (error) {
+    return (
+      <View style={fallbackStyles.overlay}>
+        <Text style={fallbackStyles.message}>{error}</Text>
+        <TouchableOpacity style={fallbackStyles.retryButton} onPress={loadMenuData}>
+          <Text style={fallbackStyles.retryText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   const toggleCart = () => setShowCart(prev => !prev);
 
@@ -1338,3 +1361,31 @@ export default function OrdersScreen() {
 }
 
 // styles moved to ./styles.ts
+
+const fallbackStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    backgroundColor: 'white',
+  },
+  message: {
+    marginTop: 16,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 999,
+    backgroundColor: '#FF6B6B',
+  },
+  retryText: {
+    color: '#FFF',
+    fontWeight: '700',
+  },
+});

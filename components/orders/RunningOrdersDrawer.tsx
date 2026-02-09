@@ -41,7 +41,32 @@ export default function RunningOrdersDrawer({
       <TouchableOpacity style={styles.ongoingOverlay} activeOpacity={1} onPress={onClose} />
       <View style={[styles.ongoingDrawer, styles.ongoingDrawerOpen]}>
         <View style={styles.ongoingHeader}>
-          <Text style={styles.ongoingTitle}>Running Orders</Text>
+          <View>
+            <Text style={styles.ongoingTitle}>Running Orders</Text>
+            <Text style={styles.ongoingSubtitle}>{runningOrders.length} active</Text>
+          </View>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={[styles.ongoingActionBtn, styles.refreshBtn]}
+              onPress={onRefresh}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Refresh running orders"
+            >
+              <Text style={[styles.ongoingActionText, styles.refreshBtnText]}>
+                ↻ Refresh
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.ongoingActionBtn, styles.closeBtn]}
+              onPress={onClose}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Close running orders"
+            >
+              <Text style={[styles.ongoingActionText, styles.closeBtnText]}>Close</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <ScrollView contentContainerStyle={{ padding: 16 }}>
@@ -108,27 +133,6 @@ export default function RunningOrdersDrawer({
             </View>
           ))}
         </ScrollView>
-
-        <View style={{ padding: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6', flexDirection: 'row', gap: 12 }}>
-          <TouchableOpacity
-            style={[styles.ongoingActionBtn, styles.refreshBtn]}
-            onPress={onRefresh}
-            activeOpacity={0.85}
-            accessibilityRole="button"
-            accessibilityLabel="Refresh running orders"
-          >
-            <Text style={[styles.ongoingActionText, styles.refreshBtnText]}>Refresh</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.ongoingActionBtn, styles.closeBtn]}
-            onPress={onClose}
-            activeOpacity={0.85}
-            accessibilityRole="button"
-            accessibilityLabel="Close running orders"
-          >
-            <Text style={[styles.ongoingActionText, styles.closeBtnText]}>Close</Text>
-          </TouchableOpacity>
-        </View>
       </View>
     </>
   );
@@ -160,12 +164,14 @@ const styles = StyleSheet.create({
   ongoingDrawerOpen: { transform: [{ translateX: 0 }] },
   ongoingHeader: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   ongoingTitle: { fontWeight: '800', fontSize: 16 },
+  ongoingSubtitle: { color: '#6B7280', fontSize: 12, marginTop: 2 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   ongoingOrderCard: { borderWidth: 1, borderColor: '#F3F4F6', borderRadius: 10, padding: 12, marginBottom: 12, backgroundColor: '#FFFFFF' },
   ongoingStatusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, alignItems: 'center' },
   ongoingActionBtn: { padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' },
   ongoingActionText: { color: '#111827', fontWeight: '700' },
-  refreshBtn: { flex: 1, backgroundColor: '#111827', borderColor: '#111827' },
+  refreshBtn: { backgroundColor: '#111827', borderColor: '#111827' },
   refreshBtnText: { color: '#FFFFFF' },
-  closeBtn: { flex: 1, backgroundColor: '#FF6B6B', borderColor: '#FF6B6B' },
+  closeBtn: { backgroundColor: '#FF6B6B', borderColor: '#FF6B6B' },
   closeBtnText: { color: '#FFFFFF' },
 });

@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View, SafeAreaView, StatusBar } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 
@@ -7,10 +7,19 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('keshanribelz@gmail.com');
   const [password, setPassword] = useState('Keshan@123');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { user, login } = useAuth();
   const router = useRouter();
+  const navigationPendingRef = useRef(false);
+
+  useEffect(() => {
+    if (user && navigationPendingRef.current) {
+      navigationPendingRef.current = false;
+      router.replace('/');
+    }
+  }, [user, router]);
 
   const handleLogin = async () => {
+    if (loading) return;
     if (!email || !password) {
       Alert.alert('Error', 'Please enter email and password');
       return;
@@ -19,7 +28,7 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       await login(email, password);
-      router.replace('/');
+      navigationPendingRef.current = true;
     } catch (error: any) {
       Alert.alert('Login Failed', error.response?.data?.message || 'Invalid credentials');
     } finally {
@@ -72,8 +81,9 @@ export default function LoginScreen() {
               </View>
             ) : (
               <Pressable 
-                style={styles.loginButton}
+                style={[styles.loginButton, loading && styles.loginButtonDisabled]}
                 onPress={handleLogin}
+                disabled={loading}
               >
                 <Text style={styles.loginText}>Sign In</Text>
               </Pressable>
@@ -189,6 +199,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 6,
+  },
+  loginButtonDisabled: {
+    opacity: 0.6,
   },
   loginText: {
     color: 'white',

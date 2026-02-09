@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, Alert, ScrollView, ActivityIndicator, SafeAreaView, StatusBar, Dimensions } from 'react-native';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { Pressable, StyleSheet, Text, View, Alert, ScrollView, ActivityIndicator, SafeAreaView, StatusBar, Dimensions, Platform } from 'react-native/';
 import Drawer from '../components/Navigation';
 import { useAuth } from '../context/AuthContext';
 import OrdersScreen from './(tabs)/orders';
@@ -13,6 +13,8 @@ import TopRightToast from '../components/TopRightToast';
 const { width } = Dimensions.get('window');
 const TABLET_BREAKPOINT = 768;
 const isTabletOrPOS = width >= TABLET_BREAKPOINT;
+const STATUS_BAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0;
+const EXTRA_TOP_OFFSET = 18; // add consistent breathing room beneath system icons
 
 // NotificationModal: renders notification history inside a modal-like full-screen overlay
 const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ visible, onClose }) => {
@@ -137,6 +139,8 @@ export default function HomeScreen() {
 	const router = useRouter();
 	const [drawerOpen, setDrawerOpen] = useState(false);
 	const [modalVisible, setModalVisible] = useState(false);
+	const logoutLockRef = useRef(false);
+	const logoutDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	useEffect(() => {
 		checkToken();
@@ -171,10 +175,29 @@ export default function HomeScreen() {
 		console.log('🏠 Home Screen - Current Token:', token);
 	};
 
-	const handleLogout = async () => {
-		await logout();
-		router.replace('/login');
-	};
+	const handleLogout = useCallback(async () => {
+		if (logoutLockRef.current) return;
+		logoutLockRef.current = true;
+		setDrawerOpen(false);
+		try {
+			await logout();
+			if (logoutDelayRef.current) {
+				clearTimeout(logoutDelayRef.current);
+			}
+			logoutDelayRef.current = setTimeout(() => {
+				router.replace('/login');
+				logoutLockRef.current = false;
+				logoutDelayRef.current = null;
+			}, 220);
+		} catch (err: any) {
+			logoutLockRef.current = false;
+			if (logoutDelayRef.current) {
+				clearTimeout(logoutDelayRef.current);
+				logoutDelayRef.current = null;
+			}
+			Alert.alert('Logout Failed', err?.message ?? 'Unable to log out');
+		}
+	}, [logout, router]);
 
 	return (
 		<>
@@ -215,6 +238,7 @@ const styles = StyleSheet.create({
 	safeArea: {
 		flex: 1,
 		backgroundColor: '#FFFFFF',
+		paddingTop: STATUS_BAR_HEIGHT + EXTRA_TOP_OFFSET,
 	},
 	container: {
 		flex: 1,
