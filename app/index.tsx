@@ -14,7 +14,6 @@ const { width } = Dimensions.get('window');
 const TABLET_BREAKPOINT = 768;
 const isTabletOrPOS = width >= TABLET_BREAKPOINT;
 const STATUS_BAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0;
-const EXTRA_TOP_OFFSET = 18; // add consistent breathing room beneath system icons
 
 // NotificationModal: renders notification history inside a modal-like full-screen overlay
 const NotificationModal: React.FC<{ visible: boolean; onClose: () => void }> = ({ visible, onClose }) => {
@@ -238,7 +237,7 @@ const styles = StyleSheet.create({
 	safeArea: {
 		flex: 1,
 		backgroundColor: '#FFFFFF',
-		paddingTop: STATUS_BAR_HEIGHT + EXTRA_TOP_OFFSET,
+		paddingTop: STATUS_BAR_HEIGHT,
 	},
 	container: {
 		flex: 1,
