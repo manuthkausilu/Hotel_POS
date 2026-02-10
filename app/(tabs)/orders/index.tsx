@@ -158,7 +158,7 @@ export default function OrdersScreen() {
   // fetch hotel settings on mount and derive percent/flag (only if authenticated)
   useEffect(() => {
     if (!isAuthenticated || authLoading) return;
-    
+
     let mounted = true;
     const load = async () => {
       setHotelSettingsLoading(true);
@@ -218,7 +218,7 @@ export default function OrdersScreen() {
       setMenuData(null);
       setCategories([]);
       setMenuItems([]);
-      
+
       // Check if it's an unauthenticated error
       if (err?.isUnauthenticated || err?.status === 401 || err?.response?.status === 401) {
         setError('Unauthenticated');
@@ -244,7 +244,7 @@ export default function OrdersScreen() {
   // fetch stewards on mount (only if authenticated)
   useEffect(() => {
     if (!isAuthenticated || authLoading) return;
-    
+
     let mounted = true;
     const load = async () => {
       setStewardsLoading(true);
@@ -272,7 +272,7 @@ export default function OrdersScreen() {
   // fetch customers on mount (only if authenticated)
   useEffect(() => {
     if (!isAuthenticated || authLoading) return;
-    
+
     let mounted = true;
     const load = async () => {
       setCustomersLoading(true);
@@ -300,7 +300,7 @@ export default function OrdersScreen() {
   // fetch tables on mount (only if authenticated)
   useEffect(() => {
     if (!isAuthenticated || authLoading) return;
-    
+
     let mounted = true;
     const load = async () => {
       setTablesLoading(true);
@@ -1077,7 +1077,7 @@ export default function OrdersScreen() {
       </View>
     );
   }
-  
+
   if (!isAuthenticated) {
     return (
       <View style={fallbackStyles.overlay}>
@@ -1088,7 +1088,7 @@ export default function OrdersScreen() {
       </View>
     );
   }
-  
+
   if (loading) {
     return (
       <View style={fallbackStyles.overlay}>
@@ -1097,8 +1097,22 @@ export default function OrdersScreen() {
       </View>
     );
   }
+  // Only show the local error overlay if it's NOT an authentication error,
+  // or if for some reason we're still authenticated but the request failed.
+  // Global authentication errors are handled by _layout.tsx via AuthContext.
   if (error) {
     const isUnauthError = error === 'Unauthenticated' || error.toLowerCase().includes('unauthenticated');
+
+    // If it's an unauth error and we're currently in the middle of being logged out (detected by authLoading or !isAuthenticated), 
+    // just show a loader or nothing while the router redirects.
+    if (isUnauthError && (!isAuthenticated || authLoading)) {
+      return (
+        <View style={fallbackStyles.overlay}>
+          <ActivityIndicator size="large" color="#FF6B6B" />
+        </View>
+      );
+    }
+
     return (
       <View style={fallbackStyles.overlay}>
         <Text style={fallbackStyles.message}>{error}</Text>

@@ -56,11 +56,10 @@ export default function CartPanel({
     : [
       styles.cartContainer,
       {
-        // Use insets.top but add extra padding to ensure it's not cutting into the header
-        // Fallback to 20 if insets.top is unexpectedly small
-        top: Math.max(insets.top, 20) + 10,
+        paddingTop: 16 + Math.min(insets.top, 20),
+        paddingBottom: 16 + Math.min(insets.bottom, 40),
         bottom: 100 + insets.bottom,
-        maxHeight: height - 100 - insets.top - insets.bottom - 40 // Leave some margin
+        maxHeight: height - insets.top - insets.bottom - 120,
       }
     ];
 
