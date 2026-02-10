@@ -1,12 +1,14 @@
 import { useRouter } from 'expo-router';
 import React, { useState, useEffect, useRef } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View, SafeAreaView, StatusBar } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View, SafeAreaView, StatusBar, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('keshanribelz@gmail.com');
   const [password, setPassword] = useState('Keshan@123');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const { user, login } = useAuth();
   const router = useRouter();
   const navigationPendingRef = useRef(false);
@@ -60,19 +62,35 @@ export default function LoginScreen() {
                 onChangeText={setEmail}
                 autoCapitalize="none"
                 keyboardType="email-address"
+                caretHidden={false}
+                showSoftInputOnFocus={Platform.OS === 'android'}
               />
             </View>
             
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Password</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your password"
-                placeholderTextColor="#FF8A8A"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-              />
+              <View style={styles.passwordContainer}>
+                <TextInput
+                  style={styles.passwordInput}
+                  placeholder="Enter your password"
+                  placeholderTextColor="#FF8A8A"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  caretHidden={false}
+                  showSoftInputOnFocus={Platform.OS === 'android'}
+                />
+                <Pressable
+                  style={styles.eyeIcon}
+                  onPress={() => setShowPassword(!showPassword)}
+                >
+                  <Ionicons
+                    name={showPassword ? 'eye-off' : 'eye'}
+                    size={22}
+                    color="#9CA3AF"
+                  />
+                </Pressable>
+              </View>
             </View>
             
             {loading ? (
@@ -186,6 +204,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#FAFAFA',
     fontSize: 16,
     color: '#1F2937',
+  },
+  passwordContainer: {
+    position: 'relative',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  passwordInput: {
+    flex: 1,
+    borderWidth: 2,
+    borderColor: '#FFF1F1',
+    padding: 18,
+    paddingRight: 50,
+    borderRadius: 16,
+    backgroundColor: '#FAFAFA',
+    fontSize: 16,
+    color: '#1F2937',
+  },
+  eyeIcon: {
+    position: 'absolute',
+    right: 18,
+    padding: 4,
   },
   loadingContainer: {
     paddingVertical: 20,

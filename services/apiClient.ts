@@ -7,9 +7,15 @@ const TOKEN_KEY = '@auth_token';
 
 // Global handler for 401 errors - can be set from AuthContext
 let onUnauthenticatedHandler: (() => void) | null = null;
+// Flag to prevent infinite loops during logout
+let isLoggingOut = false;
 
 export const setUnauthenticatedHandler = (handler: (() => void) | null) => {
   onUnauthenticatedHandler = handler;
+};
+
+export const setLoggingOut = function (value: boolean) {
+  isLoggingOut = value;
 };
 
 const apiClient = axios.create({
@@ -57,13 +63,16 @@ apiClient.interceptors.response.use(
       
       console.log('🔴 401 Unauthorized - Token removed. Error:', errorMessage);
       
-      // Trigger logout handler if set (from AuthContext)
-      if (onUnauthenticatedHandler) {
+      // Only trigger logout handler if we're not already logging out
+      // This prevents infinite loops when logout API calls fail with 401
+      if (onUnauthenticatedHandler && !isLoggingOut) {
         try {
           onUnauthenticatedHandler();
         } catch (err) {
           console.error('Error in unauthenticated handler:', err);
         }
+      } else if (isLoggingOut) {
+        console.log('⚠️ 401 during logout - skipping handler to prevent loop');
       }
       
       // Create a more descriptive error

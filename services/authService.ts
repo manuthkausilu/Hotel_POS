@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LoginRequest, LoginResponse } from '../types/Auth';
 import { User } from '../types/User';
-import { apiClient, TOKEN_KEY } from './apiClient';
+import { apiClient, TOKEN_KEY, setLoggingOut } from './apiClient';
 import { registerFcmTokenAndStore, destroyDeviceToken } from './notificationService';
 
 export const authService = {
@@ -47,25 +47,36 @@ export const authService = {
   },
 
   logout: async (): Promise<void> => {
-    const token = await AsyncStorage.getItem(TOKEN_KEY);
-    console.log('🔴 Logging out with token:', token);
+    // Set flag to prevent 401 handler from triggering during logout
+    setLoggingOut(true);
     
-    // attempt to remove device token from backend first (best-effort)
     try {
-      await destroyDeviceToken();
-      console.log('✅ Device token removed from backend');
-    } catch (err) {
-      console.warn('Failed to remove device token from backend during logout:', err);
-    }
+      const token = await AsyncStorage.getItem(TOKEN_KEY);
+      console.log('🔴 Logging out with token:', token);
+      
+      // attempt to remove device token from backend first (best-effort)
+      // If this fails with 401, it won't trigger the logout handler again
+      try {
+        await destroyDeviceToken();
+        console.log('✅ Device token removed from backend');
+      } catch (err) {
+        console.warn('Failed to remove device token from backend during logout:', err);
+      }
 
-    try {
-      await apiClient.post('/logout');
-    } catch (error) {
-      console.error('Logout API error:', error);
+      // Attempt logout API call (best-effort)
+      // If this fails with 401, it won't trigger the logout handler again
+      try {
+        await apiClient.post('/logout');
+        console.log('✅ Logout API call successful');
+      } catch (error) {
+        console.warn('Logout API error (non-critical):', error);
+      }
     } finally {
+      // Always clean up local storage and reset flag
       await AsyncStorage.removeItem(TOKEN_KEY);
       await AsyncStorage.removeItem('user');
       console.log('🗑️ Token and user removed');
+      setLoggingOut(false);
     }
   },
 
