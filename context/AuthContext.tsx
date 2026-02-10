@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { TOKEN_KEY } from '../services/apiClient';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
+import { TOKEN_KEY, setUnauthenticatedHandler } from '../services/apiClient';
 import { authService } from '../services/authService';
 import { User } from '../types/Auth';
 import { storeDeviceToken } from '../services/notificationService';
@@ -22,9 +22,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [deviceToken, setDeviceToken] = useState<string | null>(null);
+  const logoutRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     checkAuth();
+    
+    // Set up global handler for 401 errors from API client
+    const handleUnauthenticated = async () => {
+      console.log('🔴 Unauthenticated error detected - triggering logout');
+      if (logoutRef.current) {
+        await logoutRef.current();
+      }
+    };
+    
+    setUnauthenticatedHandler(handleUnauthenticated);
+    
+    return () => {
+      setUnauthenticatedHandler(null);
+    };
   }, []);
 
   const checkAuth = async () => {
@@ -39,9 +54,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(userData);
           console.log('👤 User loaded from storage:', userData);
         }
+      } else {
+        // Clear user if not authenticated
+        setUser(null);
       }
     } catch (error) {
       console.error('Auth check error:', error);
+      setIsAuthenticated(false);
+      setUser(null);
     } finally {
       setIsLoading(false);
     }
@@ -73,6 +93,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsAuthenticated(false);
     }
   };
+
+  // Store logout function in ref so it can be called from API interceptor
+  logoutRef.current = logout;
 
   return (
     <AuthContext.Provider value={{ isAuthenticated, user, isLoading, deviceToken, setDeviceToken, login, logout }}>

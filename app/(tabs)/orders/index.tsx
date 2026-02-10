@@ -1,6 +1,8 @@
 // OrdersScreen: displays menu items and cart UI only.
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, Dimensions, Alert, Modal, TextInput, ScrollView, TouchableWithoutFeedback, Keyboard, Switch, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useAuth } from '../../../context/AuthContext';
 import { fetchMenuData, fetchMenuItemByIdEndpoint } from '../../../services/menuService';
 import { orderService } from '../../../services/orderService';
 import { getStewards, Steward, formatStewardName } from '../../../services/staffService';
@@ -30,6 +32,8 @@ const TABLET_BREAKPOINT = 768; // Tablet and POS machines
 const isTabletOrPOS = width >= TABLET_BREAKPOINT;
 
 export default function OrdersScreen() {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const router = useRouter();
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -151,8 +155,10 @@ export default function OrdersScreen() {
   const currencyLabel = (hotelSettings?.currency ?? 'Rs') + ' ';
   const displayedServiceCharge = enableServiceCharge ? cartTotal * (serviceChargePercent / 100) : 0;
 
-  // fetch hotel settings on mount and derive percent/flag
+  // fetch hotel settings on mount and derive percent/flag (only if authenticated)
   useEffect(() => {
+    if (!isAuthenticated || authLoading) return;
+    
     let mounted = true;
     const load = async () => {
       setHotelSettingsLoading(true);
@@ -168,7 +174,11 @@ export default function OrdersScreen() {
         setEnableServiceCharge(Boolean(Number(s?.service_charge_enabled ?? 0)));
       } catch (err: any) {
         if (!mounted) return;
-        setHotelSettingsError(err?.message ?? 'Failed to load hotel settings');
+        if (err?.isUnauthenticated || err?.status === 401 || err?.response?.status === 401) {
+          setHotelSettingsError('Unauthenticated');
+        } else {
+          setHotelSettingsError(err?.message ?? 'Failed to load hotel settings');
+        }
       } finally {
         if (!mounted) return;
         setHotelSettingsLoading(false);
@@ -176,9 +186,16 @@ export default function OrdersScreen() {
     };
     load();
     return () => { mounted = false; };
-  }, []);
+  }, [isAuthenticated, authLoading]);
 
   const loadMenuData = useCallback(async () => {
+    // Don't load data if not authenticated
+    if (!isAuthenticated) {
+      setLoading(false);
+      setError('Unauthenticated');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -201,18 +218,33 @@ export default function OrdersScreen() {
       setMenuData(null);
       setCategories([]);
       setMenuItems([]);
-      setError(err?.response?.data?.message ?? 'Failed to load menu data');
+      
+      // Check if it's an unauthenticated error
+      if (err?.isUnauthenticated || err?.status === 401 || err?.response?.status === 401) {
+        setError('Unauthenticated');
+        // Navigation will be handled by _layout.tsx when isAuthenticated becomes false
+      } else {
+        setError(err?.response?.data?.message ?? err?.message ?? 'Failed to load menu data');
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
-    loadMenuData();
-  }, [loadMenuData]);
+    // Only load data when authentication is confirmed
+    if (!authLoading && isAuthenticated) {
+      loadMenuData();
+    } else if (!authLoading && !isAuthenticated) {
+      setLoading(false);
+      setError('Unauthenticated');
+    }
+  }, [authLoading, isAuthenticated, loadMenuData]);
 
-  // fetch stewards on mount
+  // fetch stewards on mount (only if authenticated)
   useEffect(() => {
+    if (!isAuthenticated || authLoading) return;
+    
     let mounted = true;
     const load = async () => {
       setStewardsLoading(true);
@@ -223,7 +255,11 @@ export default function OrdersScreen() {
         setStewards(s || []);
       } catch (err: any) {
         if (!mounted) return;
-        setStewardsError(err?.message ?? 'Failed to load stewards');
+        if (err?.isUnauthenticated || err?.status === 401 || err?.response?.status === 401) {
+          setStewardsError('Unauthenticated');
+        } else {
+          setStewardsError(err?.message ?? 'Failed to load stewards');
+        }
       } finally {
         if (!mounted) return;
         setStewardsLoading(false);
@@ -231,10 +267,12 @@ export default function OrdersScreen() {
     };
     load();
     return () => { mounted = false; };
-  }, []);
+  }, [isAuthenticated, authLoading]);
 
-  // fetch customers on mount
+  // fetch customers on mount (only if authenticated)
   useEffect(() => {
+    if (!isAuthenticated || authLoading) return;
+    
     let mounted = true;
     const load = async () => {
       setCustomersLoading(true);
@@ -245,7 +283,11 @@ export default function OrdersScreen() {
         setCustomers(list || []);
       } catch (err: any) {
         if (!mounted) return;
-        setCustomersError(err?.message ?? 'Failed to load customers');
+        if (err?.isUnauthenticated || err?.status === 401 || err?.response?.status === 401) {
+          setCustomersError('Unauthenticated');
+        } else {
+          setCustomersError(err?.message ?? 'Failed to load customers');
+        }
       } finally {
         if (!mounted) return;
         setCustomersLoading(false);
@@ -253,10 +295,12 @@ export default function OrdersScreen() {
     };
     load();
     return () => { mounted = false; };
-  }, []);
+  }, [isAuthenticated, authLoading]);
 
-  // fetch tables on mount
+  // fetch tables on mount (only if authenticated)
   useEffect(() => {
+    if (!isAuthenticated || authLoading) return;
+    
     let mounted = true;
     const load = async () => {
       setTablesLoading(true);
@@ -267,7 +311,11 @@ export default function OrdersScreen() {
         setTables(list || []);
       } catch (err: any) {
         if (!mounted) return;
-        setTablesError(err?.message ?? 'Failed to load tables');
+        if (err?.isUnauthenticated || err?.status === 401 || err?.response?.status === 401) {
+          setTablesError('Unauthenticated');
+        } else {
+          setTablesError(err?.message ?? 'Failed to load tables');
+        }
       } finally {
         if (!mounted) return;
         setTablesLoading(false);
@@ -275,7 +323,7 @@ export default function OrdersScreen() {
     };
     load();
     return () => { mounted = false; };
-  }, []);
+  }, [isAuthenticated, authLoading]);
 
   // fetch rooms whenever selected customer changes (reservation_id = customer.id)
   useEffect(() => {
@@ -671,7 +719,8 @@ export default function OrdersScreen() {
   };
 
   // New: fetch running orders
-  const fetchRunningOrders = async (force = false) => {
+  const fetchRunningOrders = useCallback(async (force = false) => {
+    if (!isAuthenticated) return;
     if (runningLoading && !force) return;
     setRunningLoading(true);
     setRunningError(null);
@@ -683,14 +732,19 @@ export default function OrdersScreen() {
         setRunningOrders([]);
       }
     } catch (err: any) {
-      setRunningError(err?.message ?? 'Failed to fetch running orders');
+      if (err?.isUnauthenticated || err?.status === 401 || err?.response?.status === 401) {
+        setRunningError('Unauthenticated');
+      } else {
+        setRunningError(err?.message ?? 'Failed to fetch running orders');
+      }
     } finally {
       setRunningLoading(false);
     }
-  };
+  }, [isAuthenticated, runningLoading]);
 
   // fetch when drawer opens and refresh every 20s while open
   useEffect(() => {
+    if (!isAuthenticated) return;
     let interval: any = null;
     if (ongoingOpen) {
       fetchRunningOrders(true); // initial fetch
@@ -699,12 +753,13 @@ export default function OrdersScreen() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [ongoingOpen]);
+  }, [ongoingOpen, isAuthenticated, fetchRunningOrders]);
 
-  // fetch running orders once when the screen mounts
+  // fetch running orders once when the screen mounts (only if authenticated)
   useEffect(() => {
+    if (!isAuthenticated || authLoading) return;
     fetchRunningOrders(true);
-  }, []);
+  }, [isAuthenticated, authLoading]);
 
   // Exit update mode and reset editing state
   const exitUpdateMode = useCallback(() => {
@@ -1014,6 +1069,26 @@ export default function OrdersScreen() {
   });
 
   // Show simple loading/error early guards to avoid rendering the main UI prematurely
+  if (authLoading) {
+    return (
+      <View style={fallbackStyles.overlay}>
+        <ActivityIndicator size="large" color="#FF6B6B" />
+        <Text style={fallbackStyles.message}>Checking authentication...</Text>
+      </View>
+    );
+  }
+  
+  if (!isAuthenticated) {
+    return (
+      <View style={fallbackStyles.overlay}>
+        <Text style={fallbackStyles.message}>Unauthenticated</Text>
+        <TouchableOpacity style={fallbackStyles.retryButton} onPress={() => router.replace('/login')}>
+          <Text style={fallbackStyles.retryText}>Go to Login</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+  
   if (loading) {
     return (
       <View style={fallbackStyles.overlay}>
@@ -1023,12 +1098,19 @@ export default function OrdersScreen() {
     );
   }
   if (error) {
+    const isUnauthError = error === 'Unauthenticated' || error.toLowerCase().includes('unauthenticated');
     return (
       <View style={fallbackStyles.overlay}>
         <Text style={fallbackStyles.message}>{error}</Text>
-        <TouchableOpacity style={fallbackStyles.retryButton} onPress={loadMenuData}>
-          <Text style={fallbackStyles.retryText}>Retry</Text>
-        </TouchableOpacity>
+        {isUnauthError ? (
+          <TouchableOpacity style={fallbackStyles.retryButton} onPress={() => router.replace('/login')}>
+            <Text style={fallbackStyles.retryText}>Go to Login</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={fallbackStyles.retryButton} onPress={loadMenuData}>
+            <Text style={fallbackStyles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   }

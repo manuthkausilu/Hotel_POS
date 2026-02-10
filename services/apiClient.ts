@@ -5,6 +5,13 @@ import axios from 'axios';
 const API_BASE_URL = (process.env.API_BASE_URL as string) ?? 'https://demo.trackerstay.com/api';
 const TOKEN_KEY = '@auth_token';
 
+// Global handler for 401 errors - can be set from AuthContext
+let onUnauthenticatedHandler: (() => void) | null = null;
+
+export const setUnauthenticatedHandler = (handler: (() => void) | null) => {
+  onUnauthenticatedHandler = handler;
+};
+
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -40,9 +47,32 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
+    // Handle 401 Unauthorized errors
     if (error.response?.status === 401) {
+      const errorMessage = error.response?.data?.message || error.response?.data?.error || 'Unauthenticated';
+      
+      // Remove token from storage
       await AsyncStorage.removeItem(TOKEN_KEY);
+      await AsyncStorage.removeItem('user');
+      
+      console.log('🔴 401 Unauthorized - Token removed. Error:', errorMessage);
+      
+      // Trigger logout handler if set (from AuthContext)
+      if (onUnauthenticatedHandler) {
+        try {
+          onUnauthenticatedHandler();
+        } catch (err) {
+          console.error('Error in unauthenticated handler:', err);
+        }
+      }
+      
+      // Create a more descriptive error
+      const authError = new Error(errorMessage);
+      (authError as any).isUnauthenticated = true;
+      (authError as any).status = 401;
+      return Promise.reject(authError);
     }
+    
     return Promise.reject(error);
   }
 );

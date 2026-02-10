@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Dimensions, TextInput } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { MenuItem } from '../../types/menu';
 
 const { height } = Dimensions.get('window');
@@ -38,6 +39,7 @@ export default function CartPanel({
   editingRunningOrderId,
   isTabletMode = false,
 }: CartPanelProps) {
+  const insets = useSafeAreaInsets();
   const cartTotal = cart.reduce((sum, c) => {
     const base = Number(c.item.price) || 0;
     const combosPrice = (c.combos || []).reduce((s, sc) => s + (Number(sc.menu?.price) || 0), 0);
@@ -48,8 +50,20 @@ export default function CartPanel({
 
   if (!visible) return null;
 
+  // Apply safe area insets for mobile mode to avoid status bar and navigation bar
+  const mobileCartStyle = isTabletMode 
+    ? styles.tabletCartContainer 
+    : [
+        styles.cartContainer,
+        { 
+          top: insets.top, 
+          bottom: 100 + insets.bottom,
+          maxHeight: height - 100 - insets.top - insets.bottom 
+        }
+      ];
+
   return (
-    <View style={[styles.cartContainer, isTabletMode && styles.tabletCartContainer]}>
+    <View style={mobileCartStyle}>
       <View style={styles.cartHeader}>
         <View>
           <Text style={[styles.cartTitle, isTabletMode && styles.tabletCartTitle]}>Cart</Text>

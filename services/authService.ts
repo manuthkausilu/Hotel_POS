@@ -6,6 +6,8 @@ import { registerFcmTokenAndStore, destroyDeviceToken } from './notificationServ
 
 export const authService = {
   login: async (email: string, password: string): Promise<LoginResponse> => {
+    // remove any previously stored token so the login request does not ship a stale Authorization header
+    await AsyncStorage.removeItem(TOKEN_KEY);
     const payload: LoginRequest = {
       email,
       password,
