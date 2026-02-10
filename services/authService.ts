@@ -8,6 +8,9 @@ export const authService = {
   login: async (email: string, password: string): Promise<LoginResponse> => {
     // remove any previously stored token so the login request does not ship a stale Authorization header
     await AsyncStorage.removeItem(TOKEN_KEY);
+    setCachedToken(null);
+    setCachedUserId(null);
+
     const payload: LoginRequest = {
       email,
       password,
@@ -36,20 +39,24 @@ export const authService = {
       console.log('✅ Token saved:', token);
       console.log('✅ Token type:', response.data.token_type);
 
-      // register FCM token with backend after successful login
+      // Save user BEFORE FCM registration attempt
+      if (response.data.user) {
+        await AsyncStorage.setItem('user', JSON.stringify(response.data.user));
+        console.log('✅ User saved:', response.data.user);
+      }
+
+      // Register FCM token with backend AFTER successful login
+      // Wrap in try-catch so login doesn't fail if FCM registration fails
       try {
         console.log('🔄 Registering FCM token (authService)...');
         // ensure backend receives app_type = 'pos_system'
         const fcmToken = await registerFcmTokenAndStore('pos_system');
         console.log('✅ FCM registration result token:', fcmToken);
       } catch (err) {
-        console.warn('⚠️ Failed to register FCM token after login:', err);
+        // Don't fail login if FCM registration fails - this is non-critical
+        console.warn('⚠️ Failed to register FCM token after login (non-critical):', err);
+        // Continue anyway - user is still logged in
       }
-    }
-
-    if (response.data.user) {
-      await AsyncStorage.setItem('user', JSON.stringify(response.data.user));
-      console.log('✅ User saved:', response.data.user);
     }
 
     return response.data;
@@ -82,6 +89,8 @@ export const authService = {
       }
     } finally {
       // Always clean up local storage and reset flag
+      setCachedToken(null);
+      setCachedUserId(null);
       await AsyncStorage.removeItem(TOKEN_KEY);
       await AsyncStorage.removeItem('user');
       console.log('🗑️ Token and user removed');

@@ -64,8 +64,7 @@ export default function LoginScreen() {
                 onChangeText={setEmail}
                 autoCapitalize="none"
                 keyboardType="email-address"
-                caretHidden={false}
-                showSoftInputOnFocus={Platform.OS === 'android'}
+                editable={true}
               />
             </View>
             
@@ -79,8 +78,7 @@ export default function LoginScreen() {
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
-                  caretHidden={false}
-                  showSoftInputOnFocus={Platform.OS === 'android'}
+                  editable={true}
                 />
                 <Pressable
                   style={styles.eyeIcon}
