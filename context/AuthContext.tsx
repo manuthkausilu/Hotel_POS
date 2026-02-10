@@ -1,9 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
-import { TOKEN_KEY, setUnauthenticatedHandler } from '../services/apiClient';
+import { TOKEN_KEY, setUnauthenticatedHandler, setCachedToken, setCachedUserId } from '../services/apiClient';
 import { authService } from '../services/authService';
 import { User } from '../types/Auth';
-import { storeDeviceToken } from '../services/notificationService';
+import { storeDeviceToken, registerFcmTokenAndStore } from '../services/notificationService';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -26,7 +26,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     checkAuth();
-    
+
     // Set up global handler for 401 errors from API client
     const handleUnauthenticated = async () => {
       console.log('🔴 Unauthenticated error detected - triggering logout');
@@ -34,9 +34,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await logoutRef.current();
       }
     };
-    
+
     setUnauthenticatedHandler(handleUnauthenticated);
-    
+
     return () => {
       setUnauthenticatedHandler(null);
     };
@@ -52,11 +52,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (userStr) {
           const userData = JSON.parse(userStr);
           setUser(userData);
+          // Also set in-memory cache for API client
+          const token = await AsyncStorage.getItem(TOKEN_KEY);
+          setCachedToken(token);
+          setCachedUserId(userData?.user_id || userData?.id);
           console.log('👤 User loaded from storage:', userData);
         }
       } else {
         // Clear user if not authenticated
         setUser(null);
+        setCachedToken(null);
+        setCachedUserId(null);
       }
     } catch (error) {
       console.error('Auth check error:', error);
@@ -69,15 +75,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string) => {
     const response = await authService.login(email, password);
+
+    // Update in-memory cache immediately to prevent race conditions
+    if (response.token) {
+      setCachedToken(response.token);
+    }
+    if (response.user) {
+      setCachedUserId(response.user.user_id || response.user.id);
+    }
+
     setIsAuthenticated(true);
     setUser(response.user ?? null);
+
+    // Only handle the Expo fallback here as registerFcmTokenAndStore is now in authService
     if (deviceToken) {
-      console.log('Device token after login:', deviceToken);
       try {
         await storeDeviceToken(deviceToken);
-        console.log('Device token stored successfully on login');
-      } catch (error) {
-        console.error('Failed to store device token on login:', error);
+        console.log('✅ Fallback Expo token stored');
+      } catch (fbError) {
+        console.error('❌ Fallback token storage failed:', fbError);
       }
     }
   };
@@ -88,6 +104,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       console.log('Logout error:', error);
     } finally {
+      setCachedToken(null);
+      setCachedUserId(null);
       await AsyncStorage.multiRemove([TOKEN_KEY, 'user']);
       setUser(null);
       setIsAuthenticated(false);

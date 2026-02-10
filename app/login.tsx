@@ -49,7 +49,7 @@ export default function LoginScreen() {
           <View style={styles.card}>
             <View style={styles.header}>
               <Text style={styles.title}>Welcome Back</Text>
-              <Text style={styles.subtitle}>Sign in to your a  ccount</Text>
+              <Text style={styles.subtitle}>Sign in to your account</Text>
             </View>
             
             <View style={styles.inputGroup}>

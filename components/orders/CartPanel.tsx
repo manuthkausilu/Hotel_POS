@@ -51,16 +51,18 @@ export default function CartPanel({
   if (!visible) return null;
 
   // Apply safe area insets for mobile mode to avoid status bar and navigation bar
-  const mobileCartStyle = isTabletMode 
-    ? styles.tabletCartContainer 
+  const mobileCartStyle = isTabletMode
+    ? styles.tabletCartContainer
     : [
-        styles.cartContainer,
-        { 
-          top: insets.top, 
-          bottom: 100 + insets.bottom,
-          maxHeight: height - 100 - insets.top - insets.bottom 
-        }
-      ];
+      styles.cartContainer,
+      {
+        // Use insets.top but add extra padding to ensure it's not cutting into the header
+        // Fallback to 20 if insets.top is unexpectedly small
+        top: Math.max(insets.top, 20) + 10,
+        bottom: 100 + insets.bottom,
+        maxHeight: height - 100 - insets.top - insets.bottom - 40 // Leave some margin
+      }
+    ];
 
   return (
     <View style={mobileCartStyle}>
@@ -109,7 +111,7 @@ export default function CartPanel({
                       ))}
                     </View>
                   )}
-                  
+
                   {/* Discount Input */}
                   <View style={styles.discountRow}>
                     <Text style={styles.discountLabel}>Discount:</Text>
@@ -135,7 +137,7 @@ export default function CartPanel({
                     )}
                   </View>
                 </View>
-                
+
                 <View style={[styles.qtyPill, styles.cartQtyPill, isTabletMode && styles.tabletCartQtyPill]}>
                   <TouchableOpacity onPress={() => onUpdateQuantity(cartItem.entryId, -1)}>
                     <Text style={[styles.qtyPillButton, isTabletMode && styles.tabletCartQtyPillButton]}>-</Text>
@@ -145,7 +147,7 @@ export default function CartPanel({
                     <Text style={[styles.qtyPillButton, isTabletMode && styles.tabletCartQtyPillButton]}>+</Text>
                   </TouchableOpacity>
                 </View>
-                
+
                 <TouchableOpacity onPress={() => onRemoveItem(cartItem.entryId)}>
                   <Text style={[styles.removeText, isTabletMode && styles.tabletRemoveText]}>Remove</Text>
                 </TouchableOpacity>
@@ -187,21 +189,21 @@ export default function CartPanel({
 }
 
 const styles = StyleSheet.create({
-  cartContainer: { 
-    position: 'absolute', 
-    left: 16, 
-    right: 16, 
-    bottom: 100, 
-    padding: 16, 
-    backgroundColor: '#FFFFFF', 
-    borderRadius: 18, 
-    shadowColor: '#000', 
-    shadowOffset: { width: 0, height: 6 }, 
-    shadowOpacity: 0.04, 
-    shadowRadius: 12, 
-    elevation: 12, 
-    borderWidth: 1, 
-    borderColor: '#F3F4F6', 
+  cartContainer: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 100,
+    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 12,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
     zIndex: 1000,
   },
   tabletCartContainer: {
@@ -223,10 +225,10 @@ const styles = StyleSheet.create({
     height: '100%',
     maxHeight: height - 100,
   },
-  cartHeader: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
+  cartHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 12,
   },
   cartTitle: { fontSize: 18, fontWeight: '700', color: '#111827' },
@@ -235,7 +237,7 @@ const styles = StyleSheet.create({
   tabletCartSubtitle: { fontSize: 16, marginTop: 6 },
   hideCartButton: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FEE2E2' },
   hideCartText: { fontSize: 14, fontWeight: '600', color: '#FF6B6B' },
-  cartItemsWrapper: { 
+  cartItemsWrapper: {
     height: height * 0.35,
     marginBottom: 12,
   },

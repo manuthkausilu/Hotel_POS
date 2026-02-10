@@ -5,6 +5,8 @@ import { AuthProvider, useAuth } from '../context/AuthContext';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import "../global.css";
 
 Notifications.setNotificationHandler({
@@ -53,7 +55,6 @@ function RootLayoutNav() {
     // notification interaction listener
     responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
       console.log('Notification response:', response);
-      // මෙහි navigation / data handling කරන්න පුළුවන්
     });
 
     return () => {
@@ -72,9 +73,12 @@ function RootLayoutNav() {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <RootLayoutNav />
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <StatusBar style="dark" />
+        <RootLayoutNav />
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
 
@@ -93,7 +97,6 @@ async function registerForPushNotificationsAsync() {
       return;
     }
 
-    // Android සඳහා channel එක set කිරීම
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
         name: 'default',

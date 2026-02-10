@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LoginRequest, LoginResponse } from '../types/Auth';
 import { User } from '../types/User';
-import { apiClient, TOKEN_KEY, setLoggingOut } from './apiClient';
+import { apiClient, TOKEN_KEY, setLoggingOut, setCachedToken, setCachedUserId } from './apiClient';
 import { registerFcmTokenAndStore, destroyDeviceToken } from './notificationService';
 
 export const authService = {
@@ -20,21 +20,30 @@ export const authService = {
         'Accept': 'application/json',
       },
     });
-    
+
     console.log('📥 Full Login response:', response.data);
-    
+
     if (response.data.token) {
-      await AsyncStorage.setItem(TOKEN_KEY, response.data.token);
-      console.log('✅ Token saved:', response.data.token);
+      const token = response.data.token;
+      await AsyncStorage.setItem(TOKEN_KEY, token);
+
+      // Update in-memory cache IMMEDIATELY so subsequent calls (like FCM) are authorized
+      setCachedToken(token);
+      if (response.data.user) {
+        setCachedUserId(response.data.user.user_id || response.data.user.id);
+      }
+
+      console.log('✅ Token saved:', token);
       console.log('✅ Token type:', response.data.token_type);
 
       // register FCM token with backend after successful login
       try {
+        console.log('🔄 Registering FCM token (authService)...');
         // ensure backend receives app_type = 'pos_system'
         const fcmToken = await registerFcmTokenAndStore('pos_system');
-        console.log('FCM registration result token:', fcmToken);
+        console.log('✅ FCM registration result token:', fcmToken);
       } catch (err) {
-        console.warn('Failed to register FCM token after login:', err);
+        console.warn('⚠️ Failed to register FCM token after login:', err);
       }
     }
 
@@ -49,11 +58,11 @@ export const authService = {
   logout: async (): Promise<void> => {
     // Set flag to prevent 401 handler from triggering during logout
     setLoggingOut(true);
-    
+
     try {
       const token = await AsyncStorage.getItem(TOKEN_KEY);
       console.log('🔴 Logging out with token:', token);
-      
+
       // attempt to remove device token from backend first (best-effort)
       // If this fails with 401, it won't trigger the logout handler again
       try {
