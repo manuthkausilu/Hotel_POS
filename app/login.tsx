@@ -5,8 +5,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState('keshanribelz@gmail.com');
-  const [password, setPassword] = useState('Keshan@123');
+  // const [email, setEmail] = useState('keshanribelz@gmail.com');
+  // const [password, setPassword] = useState('Keshan@123');
+   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const { user, login } = useAuth();
