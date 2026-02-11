@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Pressable, StyleSheet, Text, View, Alert, ScrollView, ActivityIndicator, SafeAreaView, StatusBar, Dimensions, Platform } from 'react-native/';
+import { Pressable, StyleSheet, Text, View, Alert, ScrollView, ActivityIndicator, StatusBar, Dimensions, Platform } from 'react-native/';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Drawer from '../components/Navigation';
 import { useAuth } from '../context/AuthContext';
 import OrdersScreen from './(tabs)/orders';
@@ -201,7 +202,7 @@ export default function HomeScreen() {
 	return (
 		<>
 			<StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
-			<SafeAreaView style={styles.safeArea}>
+			<SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
 				<NotificationProvider>
 					<TopRightToast />
 					<View style={styles.container}>
@@ -237,7 +238,6 @@ const styles = StyleSheet.create({
 	safeArea: {
 		flex: 1,
 		backgroundColor: '#FFFFFF',
-		paddingTop: STATUS_BAR_HEIGHT,
 	},
 	container: {
 		flex: 1,
@@ -249,7 +249,7 @@ const styles = StyleSheet.create({
 		alignItems: 'center',
 		justifyContent: 'space-between',
 		paddingHorizontal: 16,
-		paddingVertical: 16,
+		paddingVertical: 6,
 		backgroundColor: 'white',
 		shadowColor: '#000',
 		shadowOffset: { width: 0, height: 2 },
@@ -260,7 +260,7 @@ const styles = StyleSheet.create({
 	},
 	tabletTopBar: {
 		paddingHorizontal: 24,
-		paddingVertical: 20,
+		paddingVertical: 8,
 	},
 	menuButton: {
 		padding: 8,

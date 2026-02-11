@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, FlatList, ActivityIndicator, TouchableOpacity, Alert, StyleSheet, Button, Dimensions, Platform, StatusBar, TextInput, Modal, ScrollView, SafeAreaView } from 'react-native';
+import { SafeAreaView as SafeAreaViewContext } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { getOrders, Order, PaginatedOrders } from '../../../services/orderHistoryService';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -356,7 +357,7 @@ export default function OrderHistoryScreen() {
   return (
     <>
       <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaViewContext style={styles.safeArea} edges={['top', 'bottom']}>
         <View style={[styles.container, { paddingRight: rightPadding }, isTabletOrPOS && styles.tabletContainer]}>
           {/* Header with back button and centered title */}
           <View style={[styles.header, isTabletOrPOS && styles.tabletHeader]}>
@@ -785,14 +786,14 @@ export default function OrderHistoryScreen() {
             </SafeAreaView>
           </Modal>
         </View>
-      </SafeAreaView>
+      </SafeAreaViewContext>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { 
-    flex: 1, 
+  safeArea: {
+    flex: 1,
     backgroundColor: '#F8FAFC',
   },
   

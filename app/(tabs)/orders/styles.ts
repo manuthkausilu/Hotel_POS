@@ -336,8 +336,8 @@ export default StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 10,
-    paddingVertical: height > 600 && width > 300 ? 30 : 18,
+    marginTop: 2,
+    paddingVertical: height > 600 && width > 300 ? 12 : 8,
     paddingHorizontal: width > 400 ? 12 : 10,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
