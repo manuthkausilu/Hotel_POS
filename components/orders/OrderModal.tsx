@@ -143,7 +143,13 @@ export default function OrderModal(props: Props) {
                 <Text style={{ marginTop: 12, marginBottom: 6, fontWeight: '700' }}>Steward</Text>
                 <TouchableOpacity style={{ borderWidth: 1, borderColor: '#E5E7EB', padding: 10, borderRadius: 5 }} onPress={() => setStewardDropdownOpen(!stewardDropdownOpen)}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text>{orderDetails.stewardId ? (stewards.find((s:any)=>String(s.id)===String(orderDetails.stewardId))?.first_name || `#${orderDetails.stewardId}`) : 'None'}</Text>
+                    <Text>{orderDetails.stewardId ? (() => {
+                      const s = stewards.find((st:any)=>String(st.id)===String(orderDetails.stewardId));
+                      if (!s) return `#${orderDetails.stewardId}`;
+                      const fname = s.first_name || s.name || '';
+                      const lname = s.last_name || s.lname || '';
+                      return `${fname}${lname ? ' ' + lname : ''}`.trim() || `#${orderDetails.stewardId}`;
+                    })() : 'None'}</Text>
                     <Text style={{ color: '#6B7280' }}>{stewardDropdownOpen ? '▲' : '▼'}</Text>
                   </View>
                 </TouchableOpacity>
@@ -154,11 +160,16 @@ export default function OrderModal(props: Props) {
                     </TouchableOpacity>
                     {stewardsLoading && <Text style={{ padding: 8 }}>Loading...</Text>}
                     {stewardsError && <Text style={{ padding: 8, color: 'red' }}>{stewardsError}</Text>}
-                    {stewards.map(s => (
-                      <TouchableOpacity key={String(s.id)} style={{ padding: 10 }} onPress={() => { setOrderDetails((p:any)=>({...p, stewardId: String(s.id)})); setStewardDropdownOpen(false); }}>
-                        <Text style={orderDetails.stewardId === String(s.id) ? { color: '#FF6B6B', fontWeight: '800' } : {}}>{s.first_name || `#${s.id}`}</Text>
-                      </TouchableOpacity>
-                    ))}
+                    {stewards.map(s => {
+                      const fname = s.first_name || s.name || '';
+                      const lname = s.last_name || s.lname || '';
+                      const displayName = `${fname}${lname ? ' ' + lname : ''}`.trim() || `#${s.id}`;
+                      return (
+                        <TouchableOpacity key={String(s.id)} style={{ padding: 10 }} onPress={() => { setOrderDetails((p:any)=>({...p, stewardId: String(s.id)})); setStewardDropdownOpen(false); }}>
+                          <Text style={orderDetails.stewardId === String(s.id) ? { color: '#FF6B6B', fontWeight: '800' } : {}}>{displayName}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 )}
 

@@ -228,7 +228,17 @@ export default function SplitOrderModal({
                 Alert.alert('Error', res.message || 'Failed to split order');
             }
         } catch (error: any) {
-            Alert.alert('Error', error.response?.data?.message || error.message || 'Failed to split order');
+            // Print full error response for debugging
+            console.log('=== SPLIT ORDER ERROR RESPONSE ===');
+            console.log('Full Error Object:', error);
+            console.log('Error Response Status:', error.response?.status);
+            console.log('Error Response Data:', error.response?.data);
+            console.log('Error Response Message:', error.response?.data?.message);
+            console.log('Error Message:', error.message);
+            console.log('===================================');
+            
+            const errorMessage = error.response?.data?.message || error.response?.data?.error || error.message || 'Failed to split order';
+            Alert.alert('Error', errorMessage);
         } finally {
             setLoading(false);
         }

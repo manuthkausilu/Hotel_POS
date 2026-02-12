@@ -114,7 +114,12 @@ export class SplitOrderService {
       const res = await this.client.post<ProcessSplitPaymentsResponse>('/pos/process_split_payments', payload, config);
       return res.data;
     } catch (err: any) {
-      console.error('[SplitOrderService] processSplitPayments error:', err?.response?.data ?? err?.message ?? err);
+      console.error('[SplitOrderService] processSplitPayments error:');
+      console.error('Status:', err?.response?.status);
+      console.error('Status Text:', err?.response?.statusText);
+      console.error('Response Data:', err?.response?.data);
+      console.error('Error Message:', err?.message);
+      console.error('Full Error:', err);
       throw err;
     }
   }

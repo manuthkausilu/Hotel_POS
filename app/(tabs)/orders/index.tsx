@@ -697,6 +697,14 @@ export default function OrdersScreen() {
       setSubmitChangeAmount(null);
       setSubmitPaymentDropdownOpen(false);
 
+      // Get steward name if steward is selected
+      const selectedSteward = orderDetails.stewardId
+        ? stewards.find((s: any) => String(s.id) === String(orderDetails.stewardId))
+        : undefined;
+      const stewardName = selectedSteward
+        ? (selectedSteward.name || `#${orderDetails.stewardId}`)
+        : undefined;
+
       // Show order placed modal with summary
       setPlacedOrderSummary({
         orderId: response.data.order_id,
@@ -707,6 +715,7 @@ export default function OrdersScreen() {
         total: totalAmount,
         finalized: wasFinalized,
         paymentMethod: wasFinalized ? finalizePaymentMethod : undefined,
+        stewardName: stewardName,
       });
       setOrderPlacedModalVisible(true);
 
@@ -740,7 +749,7 @@ export default function OrdersScreen() {
     } finally {
       setRunningLoading(false);
     }
-  }, [isAuthenticated, runningLoading]);
+  }, [isAuthenticated]);
 
   // fetch when drawer opens and refresh every 20s while open
   useEffect(() => {
@@ -1026,9 +1035,6 @@ export default function OrdersScreen() {
           };
         }),
       };
-
-      // include external order identifier for trace/debug (backend will ignore unknown fields if unsupported)
-      if (editingRunningOrderExternalId) payload.external_order_id = editingRunningOrderExternalId;
 
       // debug: inspect payload to ensure order_id is numeric and rows are correct
       console.log('[POS/UI] Upsert payload for update:', JSON.stringify(payload, null, 2));

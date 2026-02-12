@@ -23,6 +23,7 @@ export default function PlacedOrderModal({ visible, onClose, summary, currencyLa
                 <ScrollView>
                   <Text style={{ marginVertical: 4 }}>Order ID: {summary.orderId}</Text>
                   <Text style={{ marginVertical: 4 }}>Order Number: {summary.orderNumber}</Text>
+                  {summary.stewardName && <Text style={{ marginVertical: 4 }}>Steward: {summary.stewardName}</Text>}
                   {summary.finalized && <Text style={{ marginVertical: 4 }}>Payment: {summary.paymentMethod}</Text>}
                   <Text style={{ marginTop: 12, fontWeight: '700' }}>Items:</Text>
                   {summary.items.map((item: any, idx: number) => (
