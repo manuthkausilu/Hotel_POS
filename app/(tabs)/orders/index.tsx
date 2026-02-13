@@ -949,23 +949,28 @@ export default function OrdersScreen() {
           const mid = m.menu_id ?? m.id ?? m.menu?.id ?? `${menuId}-opt-${ci}`;
           return { comboId: mid, menuId: mid, menu: { id: mid, name: m.name ?? m.menu?.name ?? 'Option', price: Number(m.price ?? m.menu?.price ?? 0) } };
         });
-        const rowId = it.row_id ?? it.rowid ?? it.rowId ?? undefined;
+        // IMPORTANT: Capture the row ID from the server to prevent creating duplicate items on update
+        const rowId = it.id ?? it.row_id ?? it.rowid ?? it.rowId ?? undefined;
+        
+        console.log(`[POS/UI] Loading item for edit - ID: ${rowId}, Name: ${name}, Qty: ${qty}`);
+        
         return {
           entryId: `${menuId}-${Date.now()}-${idx}`,
           item: { id: menuId, name, price },
           quantity: qty,
           discount, // Include discount
           combos: combos.length ? combos : undefined,
-          rowId
+          rowId // This will be used when updating to identify which rows to modify
         };
       });
 
       // set basic order meta if present
+      // NOTE: customer should be Reservation ID or "Walk-in Customer", NOT customer_name
       setOrderDetails(prev => ({
         ...prev,
         orderType: (serverOrder.type ?? serverOrder.order_type)?.toString().toLowerCase().includes('take') ? 'Take away' : prev.orderType,
         tableId: serverOrder.table_id ? String(serverOrder.table_id) : prev.tableId,
-        customer: serverOrder.customer ?? serverOrder.customer_name ?? prev.customer,
+        customer: serverOrder.customer ?? prev.customer,
         room: serverOrder.room ?? prev.room,
         stewardId: serverOrder.steward_id ? String(serverOrder.steward_id) : prev.stewardId,
       }));
@@ -973,12 +978,11 @@ export default function OrdersScreen() {
       // preserve server-exposed order identifier (often a string like "ORD-1001")
       setEditingRunningOrderExternalId(serverOrder.order_id ? String(serverOrder.order_id) : String(id));
 
-      setCart(parsedCart);
-      setEditingRunningOrderExternalId(serverOrder.order_id ? String(serverOrder.order_id) : String(id));
-
       // prefer server-provided numeric internal id when available (avoids using the wrong id)
       const numericServerId = Number(serverOrder.id ?? serverOrder.order_internal_id ?? id);
       setEditingRunningOrderId(Number.isFinite(numericServerId) ? numericServerId : Number(id));
+
+      // Set cart with parsed items
       setCart(parsedCart);
 
       setShowCart(true);
@@ -1021,7 +1025,7 @@ export default function OrdersScreen() {
           const discount = c.discount || 0;
           const itemTotal = (fullPrice * qty) - discount;
 
-          return {
+          const cartItem = {
             recipe_id: c.item.id,
             name: c.item.name,
             qty: qty,
@@ -1033,6 +1037,9 @@ export default function OrdersScreen() {
             modifiers: c.combos ? c.combos.map((sc: any) => ({ menu_id: sc.menuId, name: sc.menu?.name || 'Option' })) : [],
             note: c.item.special_note || undefined,
           };
+          
+          console.log(`[POS/UI] Update: Item "${c.item.name}" - Qty: ${qty}, Row ID: ${cartItem.row_id}`);
+          return cartItem;
         }),
       };
 

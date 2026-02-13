@@ -201,13 +201,14 @@ export default function SplitOrderModal({
         }
 
         if (remainingSubtotal > 1) {
-            Alert.alert('Warning', 'Not all items have been assigned. Are you sure you want to proceed?', [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Proceed', onPress: doSplit }
-            ]);
-        } else {
-            doSplit();
+            Alert.alert(
+                'Error', 
+                `Cannot split order. All items must be assigned to payers.\n\nRemaining amount: ${currencyLabel}${remainingSubtotal.toFixed(2)}`
+            );
+            return;
         }
+
+        doSplit();
     };
 
     const doSplit = async () => {
