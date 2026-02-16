@@ -42,23 +42,6 @@ export default function ComboSelectionModal({
                       {c.combo_title ?? c.title ?? c.name ?? `Choice ${idx + 1}`}
                       {isSingleChoice && <Text style={{ color: '#666', fontWeight: '400' }}> (Required)</Text>}
                     </Text>
-                    
-                    {/* Skip/None option - only show if multiple choices available */}
-                    {!isSingleChoice && (
-                      <TouchableOpacity
-                        onPress={() => onSelectChoice(key, null as any)}
-                        style={[styles.comboOptionRow, !selectedComboChoices[key] && styles.comboOptionSelected]}
-                        activeOpacity={0.85}
-                      >
-                        <View style={[styles.comboOptionImage, styles.placeholder]}>
-                          <Text style={styles.placeholderText}>Skip</Text>
-                        </View>
-                        <View style={styles.comboOptionInfo}>
-                          <Text style={styles.comboOptionName}>None (Skip this option)</Text>
-                          <Text style={{ color: '#666' }}>No additional charge</Text>
-                        </View>
-                      </TouchableOpacity>
-                    )}
 
                     {items.length === 0 ? (
                       <Text style={{ color: '#666' }}>No options available</Text>
@@ -75,7 +58,7 @@ export default function ComboSelectionModal({
                         return (
                           <TouchableOpacity
                             key={String(menuId)}
-                            onPress={() => !isLocked && onSelectChoice(key, menuId)}
+                            onPress={() => !isLocked && onSelectChoice(key, selected ? null as any : menuId)}
                             style={[
                               styles.comboOptionRow, 
                               selected && styles.comboOptionSelected,
