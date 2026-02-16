@@ -1,5 +1,6 @@
 import React from 'react';
 import { Modal, View, Text, ScrollView, TouchableOpacity, TextInput, TouchableWithoutFeedback, KeyboardAvoidingView, Keyboard, Platform, Switch } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Props = {
   visible: boolean;
@@ -64,6 +65,8 @@ export default function OrderModal(props: Props) {
     formatCustomerName, roomLabel
   } = props;
 
+  const insets = useSafeAreaInsets();
+
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
@@ -71,7 +74,14 @@ export default function OrderModal(props: Props) {
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)' }}>
             <ScrollView
               ref={orderModalScrollRef}
-              contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 20 }}
+              contentContainerStyle={{ 
+                flexGrow: 1, 
+                justifyContent: 'center', 
+                alignItems: 'center', 
+                paddingTop: Math.max(20, insets.top + 10),
+                paddingBottom: Math.max(20, insets.bottom + 10),
+                paddingHorizontal: 10
+              }}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
