@@ -38,7 +38,7 @@ export default function OrdersScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
-  const [cart, setCart] = useState<{ entryId: string, item: MenuItem, quantity: number, discount?: number, combos?: { comboId: number, menuId: number, menu?: any }[], rowId?: string | number }[]>([]);
+  const [cart, setCart] = useState<{ entryId: string, item: MenuItem, quantity: number, discount?: number, note?: string, combos?: { comboId: number, menuId: number, menu?: any }[], rowId?: string | number }[]>([]);
   const [showCart, setShowCart] = useState(false);
   const [menuData, setMenuData] = useState<MenuResponse | null>(null);
   const [categories, setCategories] = useState<{ id: number | string, name?: string, label?: string }[]>([]);
@@ -495,6 +495,15 @@ export default function OrdersScreen() {
     }));
   };
 
+  const updateNote = (entryId: string, note: string) => {
+    setCart(prev => prev.map(c => {
+      if (c.entryId === entryId) {
+        return { ...c, note: note || undefined };
+      }
+      return c;
+    }));
+  };
+
   const removeFromCart = (entryId: string) => {
     setCart(prev => prev.filter(c => c.entryId !== entryId));
   };
@@ -601,7 +610,7 @@ export default function OrdersScreen() {
           discount: c.discount || 0, // Include discount
         };
 
-        orderService.addItemToOrder(orderId, menuItemWithModifiers, c.quantity, c.item.special_note ?? undefined);
+        orderService.addItemToOrder(orderId, menuItemWithModifiers, c.quantity, c.note);
       });
 
       // Calculate subtotal AFTER discounts for service charge calculation
@@ -1035,7 +1044,7 @@ export default function OrdersScreen() {
             // reuse existing row id when present; otherwise send "new" to create a new row
             row_id: c.rowId ?? "new",
             modifiers: c.combos ? c.combos.map((sc: any) => ({ menu_id: sc.menuId, name: sc.menu?.name || 'Option' })) : [],
-            note: c.item.special_note || undefined,
+            note: c.note,
           };
           
           console.log(`[POS/UI] Update: Item "${c.item.name}" - Qty: ${qty}, Row ID: ${cartItem.row_id}`);
@@ -1264,6 +1273,7 @@ export default function OrdersScreen() {
               visible={true}
               onToggle={() => { }} // No toggle needed on tablet
               onUpdateQuantity={updateQuantity}
+              onUpdateNote={updateNote}
               onUpdateDiscount={updateDiscount}
               onRemoveItem={removeFromCart}
               onPlaceOrder={editingRunningOrderId ? () => setShowOrderModal(true) : placeOrder}
@@ -1304,6 +1314,7 @@ export default function OrdersScreen() {
             visible={showCart}
             onToggle={toggleCart}
             onUpdateQuantity={updateQuantity}
+            onUpdateNote={updateNote}
             onUpdateDiscount={updateDiscount}
             onRemoveItem={removeFromCart}
             onPlaceOrder={editingRunningOrderId ? () => setShowOrderModal(true) : placeOrder}

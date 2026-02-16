@@ -10,6 +10,7 @@ interface CartItem {
   item: MenuItem;
   quantity: number;
   discount?: number;
+  note?: string;
   combos?: { comboId: number; menuId: number; menu?: any }[];
   rowId?: string | number;
 }
@@ -19,6 +20,7 @@ interface CartPanelProps {
   visible: boolean;
   onToggle: () => void;
   onUpdateQuantity: (entryId: string, delta: number) => void;
+  onUpdateNote: (entryId: string, note: string) => void;
   onUpdateDiscount: (entryId: string, discount: number) => void;
   onRemoveItem: (entryId: string) => void;
   onPlaceOrder: () => void;
@@ -32,6 +34,7 @@ export default function CartPanel({
   visible,
   onToggle,
   onUpdateQuantity,
+  onUpdateNote,
   onUpdateDiscount,
   onRemoveItem,
   onPlaceOrder,
@@ -125,6 +128,16 @@ export default function CartPanel({
                       keyboardType="numeric"
                     />
                   </View>
+
+                  {/* Note Input */}
+                  <TextInput
+                    style={[styles.noteInput, isTabletMode && styles.tabletNoteInput]}
+                    placeholder="Add note..."
+                    placeholderTextColor="#9CA3AF"
+                    value={cartItem.note || ''}
+                    onChangeText={(text) => onUpdateNote(cartItem.entryId, text)}
+                    multiline
+                  />
 
                   {/* Show item total and final total */}
                   <View style={{ marginTop: 6 }}>
@@ -305,5 +318,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#111827',
     backgroundColor: '#FFFFFF',
+  },
+  noteInput: {
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 6,
+    backgroundColor: '#F9FAFB',
+    fontSize: 13,
+    color: '#111827',
+    minHeight: 32,
+  },
+  tabletNoteInput: {
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    minHeight: 36,
   },
 });

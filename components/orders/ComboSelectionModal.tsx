@@ -34,11 +34,32 @@ export default function ComboSelectionModal({
               {comboContext.combos.map((c: any, idx: number) => {
                 const key = c.id ?? idx;
                 const items = Array.isArray(c.combo_item) ? c.combo_item : (c.combo_item ? [c.combo_item] : []);
+                const isSingleChoice = items.length === 1;
+                
                 return (
                   <View key={String(key)} style={{ marginBottom: 16 }}>
                     <Text style={{ fontWeight: '700', marginBottom: 8 }}>
                       {c.combo_title ?? c.title ?? c.name ?? `Choice ${idx + 1}`}
+                      {isSingleChoice && <Text style={{ color: '#666', fontWeight: '400' }}> (Required)</Text>}
                     </Text>
+                    
+                    {/* Skip/None option - only show if multiple choices available */}
+                    {!isSingleChoice && (
+                      <TouchableOpacity
+                        onPress={() => onSelectChoice(key, null as any)}
+                        style={[styles.comboOptionRow, !selectedComboChoices[key] && styles.comboOptionSelected]}
+                        activeOpacity={0.85}
+                      >
+                        <View style={[styles.comboOptionImage, styles.placeholder]}>
+                          <Text style={styles.placeholderText}>Skip</Text>
+                        </View>
+                        <View style={styles.comboOptionInfo}>
+                          <Text style={styles.comboOptionName}>None (Skip this option)</Text>
+                          <Text style={{ color: '#666' }}>No additional charge</Text>
+                        </View>
+                      </TouchableOpacity>
+                    )}
+
                     {items.length === 0 ? (
                       <Text style={{ color: '#666' }}>No options available</Text>
                     ) : (
@@ -47,12 +68,21 @@ export default function ComboSelectionModal({
                         const menuId = menu?.id ?? ci.menu_id ?? ci.id;
                         const selected = String(selectedComboChoices[key]) === String(menuId);
                         const imgUri = menu?.image ? imageBase + menu.image.replace(/^\/+/, '') : null;
+                        
+                        // For single choice, it's always selected and locked
+                        const isLocked = isSingleChoice;
+                        
                         return (
                           <TouchableOpacity
                             key={String(menuId)}
-                            onPress={() => onSelectChoice(key, menuId)}
-                            style={[styles.comboOptionRow, selected && styles.comboOptionSelected]}
-                            activeOpacity={0.85}
+                            onPress={() => !isLocked && onSelectChoice(key, menuId)}
+                            style={[
+                              styles.comboOptionRow, 
+                              selected && styles.comboOptionSelected,
+                              isLocked && styles.comboOptionLocked
+                            ]}
+                            activeOpacity={isLocked ? 1 : 0.85}
+                            disabled={isLocked}
                           >
                             {imgUri ? (
                               <Image source={{ uri: imgUri }} style={styles.comboOptionImage} />
@@ -64,6 +94,7 @@ export default function ComboSelectionModal({
                             <View style={styles.comboOptionInfo}>
                               <Text style={styles.comboOptionName}>
                                 {menu?.name ?? menu?.title ?? 'Option'}
+                                {isLocked && <Text style={{ color: '#FF6B6B' }}> ✓</Text>}
                               </Text>
                               {menu?.price ? (
                                 <Text style={{ color: '#666' }}>Rs {Number(menu.price).toFixed(2)}</Text>
@@ -99,6 +130,7 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
   comboOptionRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: '#FFFFFF', marginBottom: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2, borderWidth: 1, borderColor: '#F3F4F6' },
   comboOptionSelected: { borderWidth: 2, borderColor: '#FF6B6B', backgroundColor: '#FFF1F1' },
+  comboOptionLocked: { borderWidth: 2, borderColor: '#FF6B6B', backgroundColor: '#FFF1F1', opacity: 0.9 },
   comboOptionImage: { width: 64, height: 64, borderRadius: 10, marginRight: 12, backgroundColor: '#F3F4F6', resizeMode: 'cover' },
   placeholder: { alignItems: 'center', justifyContent: 'center' },
   placeholderText: { color: '#6B7280', fontSize: 12 },
